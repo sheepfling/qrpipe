@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -15,8 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def _run(command: Sequence[str], *, cwd: Path = ROOT) -> None:
     """Run one quality gate and stop immediately if it fails."""
     print("+", " ".join(command), flush=True)
+    scripts_directory = Path(sysconfig.get_path("scripts"))
     environment = os.environ | {
-        "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}"
+        "PATH": os.pathsep.join(
+            (str(scripts_directory), str(Path(sys.executable).parent), os.environ.get("PATH", ""))
+        )
     }
     subprocess.run(command, check=True, cwd=cwd, env=environment)
 
@@ -32,7 +36,8 @@ def _check_distributions(python: str) -> None:
 
 def _environment_tool(python: str, name: str) -> str:
     """Return a tool installed beside the selected interpreter."""
-    return str(Path(python).with_name(f"{name}{Path(python).suffix}"))
+    scripts_directory = Path(sysconfig.get_path("scripts"))
+    return str(scripts_directory / f"{name}{Path(python).suffix}")
 
 
 def main() -> int:
