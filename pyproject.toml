@@ -1,0 +1,118 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qrpipe"
+dynamic = ["version"]
+description = "Turn piped input into a terminal or file-based QR code."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+authors = [{ name = "Rick" }]
+keywords = ["cli", "qr", "qrcode", "terminal", "unix"]
+dependencies = [
+    "segno>=1.6.6,<2",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/sheepfling/qrpipe"
+Source = "https://github.com/sheepfling/qrpipe"
+Issues = "https://github.com/sheepfling/qrpipe/issues"
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "pre-commit>=4",
+    "pyright>=1.1.400",
+    "pytest>=8.3",
+    "pytest-cov>=6",
+    "ruff>=0.11",
+    "rumdl>=0.1",
+    "twine>=6",
+]
+
+[project.scripts]
+qrpipe = "qrpipe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qrpipe = ["py.typed"]
+
+[tool.setuptools_scm]
+version_scheme = "no-guess-dev"
+fallback_version = "0.1.0"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "scripts", "tests"]
+exclude = [".venv"]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+reportUnnecessaryTypeIgnoreComment = "error"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "A",
+    "ANN",
+    "ARG",
+    "B",
+    "C4",
+    "E",
+    "F",
+    "I",
+    "N",
+    "PERF",
+    "PIE",
+    "PL",
+    "PTH",
+    "RET",
+    "RUF",
+    "SIM",
+    "TRY",
+    "UP",
+    "W",
+]
+ignore = [
+    "ANN401",
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004", "S101"]
+
+[tool.coverage.run]
+branch = true
+source = ["qrpipe"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+
+[tool.rumdl]
+line-length = 100
+exclude = [".git", ".github", "build", "dist", "node_modules", "vendor"]
+respect-gitignore = true

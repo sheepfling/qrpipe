@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-pep8-blank-lines
+        name: Ruff PEP 8 blank lines
+        entry: ruff check --preview --select E302,E305
+        language: python
+        additional_dependencies: ["ruff>=0.11"]
+        types_or: [python, pyi]
+      - id: ruff-check
+        name: Ruff lint
+        entry: ruff check
+        language: python
+        additional_dependencies: ["ruff>=0.11"]
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: Ruff format
+        entry: ruff format --check
+        language: python
+        additional_dependencies: ["ruff>=0.11"]
+        types_or: [python, pyi]
+      - id: rumdl
+        name: Markdown lint
+        entry: rumdl check
+        language: python
+        additional_dependencies: ["rumdl>=0.1"]
+        files: \.(md|mdx)$
