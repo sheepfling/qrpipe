@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `qrpipe stream`, a localhost browser sender for Decimen-compatible, fountain-coded animated
+  QR transfer.
+- Preserve receiver filename and media-type metadata, including `text/markdown` and `text/vcard`.
+- Add deterministic protocol-vector, browser-server, and command-boundary coverage for streams.
+
 ## 0.1.1 - 2026-09-15
 
 - Restore Python 3.10 compatibility and test Python 3.10 through 3.14 on every CI platform.

@@ -4,18 +4,29 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import mimetypes
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Literal, TextIO, cast
+from typing import BinaryIO, Final, Literal, TextIO, cast
 
 from segno import QRCode, helpers, make_qr
 
 from qrpipe import __version__
+from qrpipe.stream import (
+    MAX_FRAME_BYTES,
+    FileMetadata,
+    StreamError,
+    TransferEncoder,
+    create_browser_server,
+    pack_file,
+    render_svg,
+)
 
 ErrorLevel = Literal["L", "M", "Q", "H"]
 PayloadType = Literal["text", "phone", "vcard"]
@@ -25,6 +36,7 @@ InputStream = BinaryIO | TextIO
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INPUT = 2
+MIN_BROWSER_FRAME_BYTES: Final = 32
 
 
 class InputError(ValueError):
@@ -44,6 +56,22 @@ class Options:
     border: int | None
     error: ErrorLevel
     open_output: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StreamOptions:
+    """Validated options for an animated Decimen-compatible transfer."""
+
+    data: str | None
+    file: Path | None
+    payload_type: PayloadType
+    preserve_newline: bool
+    name: str | None
+    media_type: str | None
+    frame_bytes: int
+    fps: int
+    error: ErrorLevel
+    open_browser: bool
 
 
 def _positive_int(value: str) -> int:
@@ -72,6 +100,15 @@ def _nonnegative_int(value: str) -> int:
     return parsed
 
 
+def _frame_bytes(value: str) -> int:
+    """Parse a QR frame size supported by the browser stream renderer."""
+    parsed = _positive_int(value)
+    if not MIN_BROWSER_FRAME_BYTES <= parsed <= MAX_FRAME_BYTES:
+        msg = f"must be from {MIN_BROWSER_FRAME_BYTES} through {MAX_FRAME_BYTES}"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
     parser = argparse.ArgumentParser(
@@ -79,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Turn piped input into a QR code or QR image.",
         epilog=(
             "Example: printf '%s' 'https://example.com' | qrpipe\n"
-            "         echo '+1 (555) 010-1234' | qrpipe --type phone -o phone.png"
+            "         echo '+1 (555) 010-1234' | qrpipe --type phone -o phone.png\n"
+            "         cat notes.md | qrpipe stream --name notes.md --open"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -150,6 +188,70 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_stream_parser() -> argparse.ArgumentParser:
+    """Build the parser for Decimen-compatible animated QR transfers."""
+    parser = argparse.ArgumentParser(
+        prog="qrpipe stream",
+        description="Display a Decimen-compatible animated QR transfer in a local browser.",
+        epilog=(
+            "Example: cat notes.md | qrpipe stream --name notes.md --open\n"
+            "         qrpipe stream --file contact.vcf --open"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("data", nargs="?", help="literal payload; otherwise read standard input")
+    parser.add_argument(
+        "--file",
+        type=Path,
+        help="read an arbitrary file instead of DATA or standard input",
+    )
+    parser.add_argument(
+        "--type",
+        "--kind",
+        dest="payload_type",
+        choices=("text", "phone", "vcard"),
+        default="text",
+        help="format literal or piped text before transfer (default: text)",
+    )
+    parser.add_argument(
+        "--preserve-newline",
+        action="store_true",
+        help="do not remove one final LF or CRLF from piped input",
+    )
+    parser.add_argument("--name", help="filename restored by the receiver")
+    parser.add_argument("--mime", dest="media_type", help="media type restored by the receiver")
+    parser.add_argument(
+        "--frame-bytes",
+        type=_frame_bytes,
+        default=1465,
+        help="bytes in each QR frame, from 32 through 2953 (default: 1465)",
+    )
+    parser.add_argument(
+        "--fps",
+        type=_positive_int,
+        choices=range(1, 31),
+        default=24,
+        help="frames per second, from 1 through 30 (default: 24)",
+    )
+    parser.add_argument(
+        "-e",
+        "--error",
+        "--qr-error",
+        dest="error",
+        type=str.upper,
+        choices=("L", "M", "Q", "H"),
+        default="L",
+        help="QR error correction; L is recommended for fountain streams (default: L)",
+    )
+    parser.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        help="open the local sender page in the default browser",
+    )
+    return parser
+
+
 def parse_options(argv: Sequence[str] | None = None) -> Options:
     """Parse command-line arguments into a typed options object."""
     namespace = build_parser().parse_args(argv)
@@ -163,6 +265,32 @@ def parse_options(argv: Sequence[str] | None = None) -> Options:
         border=cast(int | None, namespace.border),
         error=cast(ErrorLevel, namespace.error),
         open_output=cast(bool, namespace.open_output),
+    )
+
+
+def parse_stream_options(argv: Sequence[str] | None = None) -> StreamOptions:
+    """Parse arguments for the animated transfer command."""
+    namespace = build_stream_parser().parse_args(argv)
+    data = cast(str | None, namespace.data)
+    file = cast(Path | None, namespace.file)
+    payload_type = cast(PayloadType, namespace.payload_type)
+    if data is not None and file is not None:
+        msg = "DATA and --file cannot be used together"
+        raise InputError(msg)
+    if file is not None and payload_type != "text":
+        msg = "--type is only available with DATA or standard input, not --file"
+        raise InputError(msg)
+    return StreamOptions(
+        data=data,
+        file=file,
+        payload_type=payload_type,
+        preserve_newline=cast(bool, namespace.preserve_newline),
+        name=cast(str | None, namespace.name),
+        media_type=cast(str | None, namespace.media_type),
+        frame_bytes=cast(int, namespace.frame_bytes),
+        fps=cast(int, namespace.fps),
+        error=cast(ErrorLevel, namespace.error),
+        open_browser=cast(bool, namespace.open_browser),
     )
 
 
@@ -265,6 +393,67 @@ def read_payload(options: Options, stdin: InputStream) -> Payload:
     return _format_payload(data, options.payload_type)
 
 
+def _stream_input_options(options: StreamOptions) -> Options:
+    """Adapt stream input options to the shared payload reader."""
+    return Options(
+        data=options.data,
+        payload_type=options.payload_type,
+        output=None,
+        preserve_newline=options.preserve_newline,
+        compact=True,
+        size=8,
+        border=None,
+        error=options.error,
+        open_output=False,
+    )
+
+
+def read_stream_payload(options: StreamOptions, stdin: InputStream) -> bytes:
+    """Read source bytes for a stream from a file, literal input, or standard input."""
+    if options.file is not None:
+        if not options.file.is_file():
+            msg = "--file must name a regular file"
+            raise InputError(msg)
+        data = options.file.read_bytes()
+        if not data:
+            msg = "input is empty; --file must not be empty"
+            raise InputError(msg)
+        return data
+
+    data = read_payload(_stream_input_options(options), stdin)
+    return data.encode("utf-8") if isinstance(data, str) else data
+
+
+def _stream_metadata(options: StreamOptions) -> FileMetadata:
+    """Choose a safe filename and media type to restore on the receiver."""
+    if options.name is not None:
+        name = options.name
+    elif options.file is not None:
+        name = options.file.name
+    elif options.payload_type == "vcard":
+        name = "contact.vcf"
+    else:
+        name = "payload.txt"
+
+    if name != Path(name).name or "/" in name or "\\" in name or name in {"", ".", ".."}:
+        msg = "--name must be a filename, not a path"
+        raise InputError(msg)
+    if options.media_type is not None:
+        media_type = options.media_type.strip()
+        if not media_type:
+            msg = "--mime must not be empty"
+            raise InputError(msg)
+    else:
+        known_type = {
+            ".md": "text/markdown",
+            ".txt": "text/plain",
+            ".vcf": "text/vcard",
+        }.get(Path(name).suffix.lower())
+        guessed, _encoding = mimetypes.guess_type(name)
+        media_type = known_type or guessed or "application/octet-stream"
+    return FileMetadata(name=name, media_type=media_type)
+
+
 def create_qr(data: Payload, error: ErrorLevel) -> QRCode:
     """Create an ordinary QR code with the requested exact error level."""
     try:
@@ -322,6 +511,26 @@ def _open_output(output: Path) -> None:
         raise InputError(msg) from exc
 
 
+def _open_stream(url: str) -> None:
+    """Open the local animated-QR sender page with the platform browser."""
+    if sys.platform == "darwin":
+        command = ["open", url]
+    elif sys.platform.startswith("win"):
+        command = ["cmd", "/c", "start", "", url]
+    else:
+        command = ["xdg-open", url]
+    try:
+        subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        msg = "could not open the local sender page with the system browser"
+        raise InputError(msg) from exc
+
+
 def emit_qr(qr: QRCode, options: Options, stdout: TextIO) -> None:
     """Render a QR code to the terminal or save it to a file."""
     if options.output is None:
@@ -352,6 +561,51 @@ def _reject_tty_without_input(options: Options, input_stream: InputStream) -> No
         raise InputError(msg)
 
 
+def run_stream(
+    argv: Sequence[str] | None = None,
+    *,
+    stdin: InputStream | None = None,
+    stdout: TextIO | None = None,
+    stderr: TextIO | None = None,
+) -> int:
+    """Run the animated Decimen-compatible QR sender."""
+    input_stream: InputStream = getattr(sys.stdin, "buffer", sys.stdin) if stdin is None else stdin
+    output_stream = sys.stdout if stdout is None else stdout
+    error_stream = sys.stderr if stderr is None else stderr
+
+    try:
+        options = parse_stream_options(argv)
+        input_options = _stream_input_options(options)
+        if options.file is None:
+            _reject_tty_without_input(input_options, input_stream)
+        payload = read_stream_payload(options, input_stream)
+        encoded = pack_file(payload, _stream_metadata(options))
+        encoder = TransferEncoder(encoded, options.frame_bytes, secrets.randbelow(0xFFFF) + 1)
+        render_svg(encoder.frame(0), options.error)
+        server = create_browser_server(encoder, options.fps, options.error)
+        url = f"http://127.0.0.1:{server.server_port}/"
+        try:
+            if options.open_browser:
+                _open_stream(url)
+            print(f"qrpipe stream: {url}", file=output_stream)
+            receiver = "Receiver: https://optical-transfer.tongatron.org/ (choose Receive)"
+            print(receiver, file=output_stream)
+            print("Press Ctrl+C to stop.", file=output_stream)
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+    except (InputError, StreamError) as exc:
+        print(f"qrpipe: {exc}", file=error_stream)
+        return EXIT_INPUT
+    except OSError:
+        print("qrpipe: I/O error while preparing animated QR output", file=error_stream)
+        return EXIT_FAILURE
+
+    return EXIT_OK
+
+
 def run(
     argv: Sequence[str] | None = None,
     *,
@@ -360,12 +614,16 @@ def run(
     stderr: TextIO | None = None,
 ) -> int:
     """Run the command and return a process exit status."""
+    arguments = tuple(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ("stream",):
+        return run_stream(arguments[1:], stdin=stdin, stdout=stdout, stderr=stderr)
+
     input_stream: InputStream = getattr(sys.stdin, "buffer", sys.stdin) if stdin is None else stdin
     output_stream = sys.stdout if stdout is None else stdout
     error_stream = sys.stderr if stderr is None else stderr
 
     try:
-        options = parse_options(argv)
+        options = parse_options(arguments)
         _reject_tty_without_input(options, input_stream)
         data = read_payload(options, input_stream)
         qr = create_qr(data, options.error)
