@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 - 2026-09-15
+
+- Restore Python 3.10 compatibility and test Python 3.10 through 3.14 on every CI platform.
+
 ## 0.1.0 - 2026-09-10
 
 - Read QR payloads from standard input or one positional argument.

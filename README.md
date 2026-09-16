@@ -14,7 +14,7 @@ file whose format is inferred from the extension by Segno.
 ## Install for development
 
 ```console
-python3.12 -m venv .venv
+python3.10 -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/qrpipe --help
 ```
@@ -84,14 +84,14 @@ QR are intentionally outside this small initial interface.
 ```
 
 This runs compilation, Ruff, branch coverage, build/metadata checks, Pyright, Markdown linting,
-and pre-commit. GitHub Actions runs the same gates on Ubuntu, macOS, and Windows with Python 3.12,
-3.13, and 3.14.
+and pre-commit. GitHub Actions runs the same gates on Ubuntu, macOS, and Windows with Python 3.10
+through 3.14.
 
 ## Releasing
 
 1. Push the release commit and wait for CI to pass.
 2. Configure PyPI and TestPyPI trusted publishers for this repository's corresponding workflows.
-3. Tag that commit as `v0.1.0` and push the tag.
+3. Tag that commit as `vX.Y.Z` and push the tag.
 4. Run **Publish to TestPyPI** from GitHub Actions against the tag and install the result in a
    fresh environment.
 5. Create a GitHub release from the same tag to publish to PyPI.

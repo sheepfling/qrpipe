@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from io import BytesIO, StringIO
 from pathlib import Path
-from typing import Never
+from typing import NoReturn
 
 import pytest
 
@@ -130,7 +130,7 @@ def test_structured_payload_rejects_invalid_utf8_and_empty_vcard() -> None:
 
 
 def test_vcard_helper_errors_are_normalized(monkeypatch: pytest.MonkeyPatch) -> None:
-    def invalid_vcard(*_args: object, **_kwargs: object) -> Never:
+    def invalid_vcard(*_args: object, **_kwargs: object) -> NoReturn:
         raise ValueError
 
     monkeypatch.setattr(cli.helpers, "make_vcard_data", invalid_vcard)
@@ -148,7 +148,7 @@ def test_create_qr_uses_exact_error_level(error: cli.ErrorLevel) -> None:
 
 
 def test_create_qr_normalizes_encoding_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    def cannot_encode(*_args: object, **_kwargs: object) -> Never:
+    def cannot_encode(*_args: object, **_kwargs: object) -> NoReturn:
         raise ValueError
 
     monkeypatch.setattr(cli, "make_qr", cannot_encode)
@@ -368,7 +368,7 @@ def test_open_output_normalizes_platform_errors(monkeypatch: pytest.MonkeyPatch)
     def fake_save(_qr: object, _output: Path, _size: int, _border: int | None) -> None:
         return None
 
-    def cannot_open(*_args: object, **_kwargs: object) -> Never:
+    def cannot_open(*_args: object, **_kwargs: object) -> NoReturn:
         raise OSError
 
     monkeypatch.setattr(cli, "_save_atomically", fake_save)
@@ -402,7 +402,7 @@ def test_errors_do_not_echo_payload() -> None:
 
 
 def test_os_errors_are_reported_without_input_details(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unavailable_output(*_args: object, **_kwargs: object) -> Never:
+    def unavailable_output(*_args: object, **_kwargs: object) -> NoReturn:
         raise OSError
 
     monkeypatch.setattr(cli, "emit_qr", unavailable_output)
@@ -464,7 +464,7 @@ def test_module_entry_point_calls_main(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_package_version_fallback_without_installed_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def metadata_is_unavailable(_distribution: str) -> Never:
+    def metadata_is_unavailable(_distribution: str) -> NoReturn:
         raise importlib.metadata.PackageNotFoundError
 
     try:

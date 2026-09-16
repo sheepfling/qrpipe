@@ -9,7 +9,7 @@ description = "Turn piped input into a terminal or file-based QR code."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 authors = [{ name = "Rick" }]
 keywords = ["cli", "qr", "qrcode", "terminal", "unix"]
 dependencies = [
@@ -19,6 +19,8 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -53,7 +55,7 @@ qrpipe = ["py.typed"]
 
 [tool.setuptools_scm]
 version_scheme = "no-guess-dev"
-fallback_version = "0.1.0"
+fallback_version = "0.1.1"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
@@ -62,7 +64,7 @@ testpaths = ["tests"]
 [tool.pyright]
 include = ["src", "scripts", "tests"]
 exclude = [".venv"]
-pythonVersion = "3.12"
+pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "strict"
 venvPath = "."
@@ -71,7 +73,7 @@ reportUnnecessaryTypeIgnoreComment = "error"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
