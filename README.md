@@ -81,9 +81,10 @@ QR code, and save the reconstructed file.
   fountain layer already recovers whole missed frames.
 - `--file` transfers arbitrary bytes and restores the original filename. Piped or literal data
   uses `--name` (default: `payload.txt`); vCards default to `contact.vcf` and `text/vcard`.
-- `--chunk-size` splits input into independently recoverable parts. Select each part in the sender
-  page, save them on the receiver, and concatenate them in filename order. It can also force
-  smaller test files into multiple parts.
+- `--chunk-size` splits input into independently recoverable parts. In the sender page, scan the
+  current part, press **Mark scanned → Next**, and save it on the receiver. Use **Undo last** or
+  the checklist if you need to correct a goof, then concatenate the saved parts in filename order.
+  It can also force smaller test files into multiple parts.
 
 The Decimen wire format has a 2 MiB input limit per part. Chunked transfer is a sender-side
 convenience; the stock receiver does not yet reassemble the parts automatically. A stream is

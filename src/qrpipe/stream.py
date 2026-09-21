@@ -6,7 +6,6 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from json import dumps
@@ -240,31 +239,61 @@ def browser_page(fps: int, chunk_names: tuple[str, ...] = ()) -> bytes:
         .replace(">", "\\u003e")
         .replace("&", "\\u0026")
     )
-    selectors = "".join(
-        f'<option value="{index}">{escape(name, quote=True)}</option>'
-        for index, name in enumerate(names)
-    )
     return f"""<!doctype html>
 <meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
 <title>qrpipe optical stream</title>
 <style>
 body{{margin:0;background:#111;color:#eee;font:16px system-ui;display:grid;
 min-height:100vh;place-items:center}}
-main{{display:grid;gap:1rem;justify-items:center}}
+main{{display:grid;gap:1rem;justify-items:center;width:min(92vmin,1200px)}}
 img{{width:min(92vmin,1200px);height:min(92vmin,1200px);image-rendering:pixelated;background:#fff}}
-button,select{{font:inherit;padding:.5rem 1rem}}
+button{{font:inherit;padding:.5rem 1rem;cursor:pointer}}
+button:disabled{{cursor:default;opacity:.45}}
+#chunks{{display:grid;gap:.35rem;width:100%;max-height:10rem;overflow:auto}}
+#chunks label{{display:flex;gap:.5rem;align-items:center;padding:.35rem .5rem;
+border-radius:.35rem;cursor:pointer}}
+#chunks label.current{{background:#333}}
+#chunks label.done{{color:#8f8}}
+#controls{{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}}
 </style>
-<main><div>Chunk <select id=\"chunk\">{selectors}</select></div>
+<main><div id=\"progress\"></div><div id=\"chunks\"></div>
 <img id=\"qr\" alt=\"Animated QR transfer\">
-<button id=\"fullscreen\">Fullscreen</button></main>
+<div id=\"controls\"><button id=\"next\">Mark scanned → Next</button>
+<button id=\"undo\">Undo last</button><button id=\"reset\">Reset checklist</button>
+<button id=\"fullscreen\">Fullscreen</button></div></main>
 <script>
-const qr=document.querySelector('#qr');const chunk=document.querySelector('#chunk');
-const names={names_json};let frame=0;
+const qr=document.querySelector('#qr');const progress=document.querySelector('#progress');
+const chunks=document.querySelector('#chunks');const nextButton=document.querySelector('#next');
+const undoButton=document.querySelector('#undo');const resetButton=document.querySelector('#reset');
+const names={names_json};let current=0;let frame=0;const complete=new Set();const history=[];
+for (const [index,name] of names.entries()){{
+  const label=document.createElement('label');const input=document.createElement('input');
+  input.type='checkbox';input.dataset.index=index;input.onchange=()=>{{
+    if (input.checked) complete.add(index); else complete.delete(index);
+    current=index;frame=0;update();
+  }};
+  label.append(input,document.createTextNode(name));chunks.append(label);
+}}
 document.querySelector('#fullscreen').onclick=()=>document.documentElement.requestFullscreen?.();
-chunk.onchange=()=>{{frame=0;}};
-function next(){{qr.src='/frame.svg?chunk='+chunk.value+'&n='+frame++;
+function update(){{
+  for (const [index,label] of [...chunks.children].entries()){{
+    label.classList.toggle('current',index===current);label.classList.toggle('done',complete.has(index));
+  }}
+  progress.textContent=complete.size+'/'+names.length+' chunks complete — scanning '+names[current];
+  nextButton.disabled=complete.size===names.length;undoButton.disabled=history.length===0;
+}}
+nextButton.onclick=()=>{{
+  if (!complete.has(current)){{complete.add(current);history.push(current);}}
+  const nextIndex=[...names.keys()].find(index=>!complete.has(index));
+  if (nextIndex!==undefined){{current=nextIndex;frame=0;}} update();
+}};
+undoButton.onclick=()=>{{const previous=history.pop();
+if(previous!==undefined){{complete.delete(previous);current=previous;frame=0;}}update();}};
+resetButton.onclick=()=>{{complete.clear();history.length=0;current=0;frame=0;update();}};
+function next(){{qr.src='/frame.svg?chunk='+current+'&n='+frame++;
 qr.onload=()=>setTimeout(next,{delay});
 qr.onerror=()=>setTimeout(next,250)}}
+update();
 next();
 </script>
 """.encode()

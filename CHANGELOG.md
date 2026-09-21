@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add selectable chunked streams for inputs larger than Decimen's 2 MiB per-file limit.
+- Add checklist-based chunked streams for inputs larger than Decimen's 2 MiB per-file limit.
 - Add `qrpipe stream`, a localhost browser sender for Decimen-compatible, fountain-coded animated
   QR transfer.
 - Preserve receiver filename and media-type metadata, including `text/markdown` and `text/vcard`.
