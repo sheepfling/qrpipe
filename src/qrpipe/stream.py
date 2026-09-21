@@ -20,6 +20,7 @@ FRAME_HEADER_LEN: Final = 20
 MAX_FILE_BYTES: Final = 2 * 1024 * 1024
 MAX_FRAME_BYTES: Final = 2953
 MIN_FRAME_BYTES: Final = FRAME_HEADER_LEN + 1
+RECEIVER_URL: Final = "https://optical-transfer.tongatron.org/"
 _MASK32: Final = 0xFFFFFFFF
 _MAX_UNSIGNED_SHORT: Final = 0xFFFF
 _MAGIC: Final = b"\xd1\x0c"
@@ -257,6 +258,8 @@ border-radius:.35rem;cursor:pointer}}
 #controls{{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}}
 </style>
 <main><div id=\"progress\"></div><div id=\"chunks\"></div>
+<div><a href=\"{RECEIVER_URL}\" target=\"_blank\" rel=\"noopener\">Open Decimen receiver</a>
+on the phone, then return here to scan.</div>
 <img id=\"qr\" alt=\"Animated QR transfer\">
 <div id=\"controls\"><button id=\"next\">Mark scanned → Next</button>
 <button id=\"undo\">Undo last</button><button id=\"reset\">Reset checklist</button>

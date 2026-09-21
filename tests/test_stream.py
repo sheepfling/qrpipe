@@ -114,6 +114,7 @@ def test_browser_page_can_select_multiple_chunks() -> None:
     page = stream.browser_page(10, ("large.part0001-of-0002.txt", "large.part0002-of-0002.txt"))
     assert b"large.part0001-of-0002.txt" in page
     assert b"/frame.svg?chunk=" in page
+    assert stream.RECEIVER_URL.encode() in page
 
     encoded = stream.pack_file(b"hello", stream.FileMetadata("part.txt", "text/plain"))
     server = stream.create_browser_server(

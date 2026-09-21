@@ -21,6 +21,7 @@ from qrpipe import __version__
 from qrpipe.stream import (
     MAX_FILE_BYTES,
     MAX_FRAME_BYTES,
+    RECEIVER_URL,
     FileMetadata,
     StreamError,
     TransferEncoder,
@@ -666,7 +667,7 @@ def run_stream(
             if options.open_browser:
                 _open_stream(url)
             print(f"qrpipe stream: {url}", file=output_stream)
-            receiver = "Receiver: https://optical-transfer.tongatron.org/ (choose Receive)"
+            receiver = f"Receiver: {RECEIVER_URL} (choose Receive)"
             print(receiver, file=output_stream)
             if total > 1:
                 print(
