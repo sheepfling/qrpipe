@@ -67,6 +67,7 @@ a small file through a screen-to-camera link, not for the normal Camera app.
 cat notes.md | qrpipe stream --name notes.md --mime text/markdown --open
 qrpipe stream --file contact.vcf --open
 printf '%s' '+1 (555) 010-1234' | qrpipe stream --type phone --name phone.txt --open
+qrpipe stream --file large.txt --chunk-size 1MiB --open
 ```
 
 The command starts a sender page on `127.0.0.1` and prints its URL. `--open` launches that local
@@ -80,10 +81,14 @@ QR code, and save the reconstructed file.
   fountain layer already recovers whole missed frames.
 - `--file` transfers arbitrary bytes and restores the original filename. Piped or literal data
   uses `--name` (default: `payload.txt`); vCards default to `contact.vcf` and `text/vcard`.
+- `--chunk-size` splits input into independently recoverable parts. Select each part in the sender
+  page, save them on the receiver, and concatenate them in filename order. It can also force
+  smaller test files into multiple parts.
 
-The Decimen wire format has a 2 MiB input limit. A stream is visible to any camera that can see
-the display and is not encrypted. Use it only where optical transfer is permitted; it is not a way
-to bypass an organization's information-security controls.
+The Decimen wire format has a 2 MiB input limit per part. Chunked transfer is a sender-side
+convenience; the stock receiver does not yet reassemble the parts automatically. A stream is
+visible to any camera that can see the display and is not encrypted. Use it only where optical
+transfer is permitted; it is not a way to bypass an organization's information-security controls.
 
 This release targets Decimen's documented sender/receiver format. AirQR, LightDrop, and Pharos
 also use animated QR transfer, but their public product descriptions do not establish a shared

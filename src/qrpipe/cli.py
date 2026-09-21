@@ -19,6 +19,7 @@ from segno import QRCode, helpers, make_qr
 
 from qrpipe import __version__
 from qrpipe.stream import (
+    MAX_FILE_BYTES,
     MAX_FRAME_BYTES,
     FileMetadata,
     StreamError,
@@ -68,6 +69,7 @@ class StreamOptions:
     preserve_newline: bool
     name: str | None
     media_type: str | None
+    chunk_size: int | None
     frame_bytes: int
     fps: int
     error: ErrorLevel
@@ -105,6 +107,33 @@ def _frame_bytes(value: str) -> int:
     parsed = _positive_int(value)
     if not MIN_BROWSER_FRAME_BYTES <= parsed <= MAX_FRAME_BYTES:
         msg = f"must be from {MIN_BROWSER_FRAME_BYTES} through {MAX_FRAME_BYTES}"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
+def _chunk_size(value: str) -> int:
+    """Parse a chunk size in bytes or binary units."""
+    match = re.fullmatch(r"\s*(\d+)\s*([km]i?b?|b)?\s*", value, re.IGNORECASE)
+    if match is None:
+        msg = "must be a positive byte count such as 1048576 or 1MiB"
+        raise argparse.ArgumentTypeError(msg)
+    amount = int(match.group(1))
+    unit = (match.group(2) or "").casefold()
+    multiplier = {
+        "": 1,
+        "b": 1,
+        "k": 1024,
+        "kb": 1024,
+        "ki": 1024,
+        "kib": 1024,
+        "m": 1024**2,
+        "mb": 1024**2,
+        "mi": 1024**2,
+        "mib": 1024**2,
+    }[unit]
+    parsed = amount * multiplier
+    if parsed <= 0 or parsed > MAX_FILE_BYTES:
+        msg = f"must be from 1 byte through {MAX_FILE_BYTES // 1024**2} MiB"
         raise argparse.ArgumentTypeError(msg)
     return parsed
 
@@ -221,6 +250,11 @@ def build_stream_parser() -> argparse.ArgumentParser:
     parser.add_argument("--name", help="filename restored by the receiver")
     parser.add_argument("--mime", dest="media_type", help="media type restored by the receiver")
     parser.add_argument(
+        "--chunk-size",
+        type=_chunk_size,
+        help="split input into independently saved chunks (bytes or KiB/MiB)",
+    )
+    parser.add_argument(
         "--frame-bytes",
         type=_frame_bytes,
         default=1465,
@@ -287,6 +321,7 @@ def parse_stream_options(argv: Sequence[str] | None = None) -> StreamOptions:
         preserve_newline=cast(bool, namespace.preserve_newline),
         name=cast(str | None, namespace.name),
         media_type=cast(str | None, namespace.media_type),
+        chunk_size=cast(int | None, namespace.chunk_size),
         frame_bytes=cast(int, namespace.frame_bytes),
         fps=cast(int, namespace.fps),
         error=cast(ErrorLevel, namespace.error),
@@ -454,6 +489,30 @@ def _stream_metadata(options: StreamOptions) -> FileMetadata:
     return FileMetadata(name=name, media_type=media_type)
 
 
+def _chunk_name(name: str, index: int, total: int) -> str:
+    """Add a stable part suffix while preserving the original filename extension."""
+    path = Path(name)
+    suffix = path.suffix
+    stem = name[: -len(suffix)] if suffix else name
+    width = max(4, len(str(total)))
+    return f"{stem}.part{index:0{width}d}-of-{total:0{width}d}{suffix}"
+
+
+def _stream_chunks(payload: bytes, options: StreamOptions) -> tuple[bytes, ...]:
+    """Split a stream payload when requested, enforcing the per-part limit."""
+    if options.chunk_size is None:
+        if len(payload) <= MAX_FILE_BYTES:
+            return (payload,)
+        msg = "stream input exceeds 2 MiB; pass --chunk-size such as 1MiB"
+        raise InputError(msg)
+    if len(payload) <= options.chunk_size:
+        return (payload,)
+    return tuple(
+        payload[offset : offset + options.chunk_size]
+        for offset in range(0, len(payload), options.chunk_size)
+    )
+
+
 def create_qr(data: Payload, error: ErrorLevel) -> QRCode:
     """Create an ordinary QR code with the requested exact error level."""
     try:
@@ -579,10 +638,29 @@ def run_stream(
         if options.file is None:
             _reject_tty_without_input(input_options, input_stream)
         payload = read_stream_payload(options, input_stream)
-        encoded = pack_file(payload, _stream_metadata(options))
-        encoder = TransferEncoder(encoded, options.frame_bytes, secrets.randbelow(0xFFFF) + 1)
-        render_svg(encoder.frame(0), options.error)
-        server = create_browser_server(encoder, options.fps, options.error)
+        chunks = _stream_chunks(payload, options)
+        metadata = _stream_metadata(options)
+        total = len(chunks)
+        chunk_names = (
+            tuple(_chunk_name(metadata.name, index, total) for index in range(1, total + 1))
+            if total > 1
+            else (metadata.name,)
+        )
+        encoders = tuple(
+            TransferEncoder(
+                pack_file(chunk, FileMetadata(name, metadata.media_type)),
+                options.frame_bytes,
+                secrets.randbelow(0xFFFF) + 1,
+            )
+            for chunk, name in zip(chunks, chunk_names, strict=True)
+        )
+        render_svg(encoders[0].frame(0), options.error)
+        server = create_browser_server(
+            encoders if total > 1 else encoders[0],
+            options.fps,
+            options.error,
+            chunk_names=chunk_names,
+        )
         url = f"http://127.0.0.1:{server.server_port}/"
         try:
             if options.open_browser:
@@ -590,6 +668,12 @@ def run_stream(
             print(f"qrpipe stream: {url}", file=output_stream)
             receiver = "Receiver: https://optical-transfer.tongatron.org/ (choose Receive)"
             print(receiver, file=output_stream)
+            if total > 1:
+                print(
+                    f"Chunks: select and save all {total} parts, then reassemble "
+                    "them in filename order.",
+                    file=output_stream,
+                )
             print("Press Ctrl+C to stop.", file=output_stream)
             server.serve_forever()
         except KeyboardInterrupt:

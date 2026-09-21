@@ -6,12 +6,14 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
+from json import dumps
 from math import ceil
 from threading import Lock
 from typing import Final
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from segno import make_qr
 
@@ -228,9 +230,20 @@ def render_svg(frame: bytes, error: str) -> bytes:
     return output.getvalue()
 
 
-def browser_page(fps: int) -> bytes:
+def browser_page(fps: int, chunk_names: tuple[str, ...] = ()) -> bytes:
     """Return the self-contained sender page served only on localhost."""
     delay = round(1000 / fps)
+    names = chunk_names or ("payload.txt",)
+    names_json = (
+        dumps(names, ensure_ascii=True)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    selectors = "".join(
+        f'<option value="{index}">{escape(name, quote=True)}</option>'
+        for index, name in enumerate(names)
+    )
     return f"""<!doctype html>
 <meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
 <title>qrpipe optical stream</title>
@@ -239,24 +252,42 @@ body{{margin:0;background:#111;color:#eee;font:16px system-ui;display:grid;
 min-height:100vh;place-items:center}}
 main{{display:grid;gap:1rem;justify-items:center}}
 img{{width:min(92vmin,1200px);height:min(92vmin,1200px);image-rendering:pixelated;background:#fff}}
-button{{font:inherit;padding:.5rem 1rem}}
+button,select{{font:inherit;padding:.5rem 1rem}}
 </style>
-<main><img id=\"qr\" alt=\"Animated QR transfer\">
+<main><div>Chunk <select id=\"chunk\">{selectors}</select></div>
+<img id=\"qr\" alt=\"Animated QR transfer\">
 <button id=\"fullscreen\">Fullscreen</button></main>
 <script>
-const qr=document.querySelector('#qr');let frame=0;
+const qr=document.querySelector('#qr');const chunk=document.querySelector('#chunk');
+const names={names_json};let frame=0;
 document.querySelector('#fullscreen').onclick=()=>document.documentElement.requestFullscreen?.();
-function next(){{qr.src='/frame.svg?n='+frame++;qr.onload=()=>setTimeout(next,{delay});
+chunk.onchange=()=>{{frame=0;}};
+function next(){{qr.src='/frame.svg?chunk='+chunk.value+'&n='+frame++;
+qr.onload=()=>setTimeout(next,{delay});
 qr.onerror=()=>setTimeout(next,250)}}
 next();
 </script>
 """.encode()
 
 
-def create_browser_server(encoder: TransferEncoder, fps: int, error: str) -> ThreadingHTTPServer:
-    """Create a localhost-only server which supplies an endless QR image stream."""
+def create_browser_server(
+    encoders: TransferEncoder | tuple[TransferEncoder, ...],
+    fps: int,
+    error: str,
+    *,
+    chunk_names: tuple[str, ...] = (),
+) -> ThreadingHTTPServer:
+    """Create a localhost-only server which supplies endless QR image streams."""
+    encoder_list = (encoders,) if isinstance(encoders, TransferEncoder) else encoders
+    if not encoder_list:
+        msg = "stream needs at least one encoder"
+        raise StreamError(msg)
+    if chunk_names and len(chunk_names) != len(encoder_list):
+        msg = "stream chunk names must match encoders"
+        raise StreamError(msg)
+    names = chunk_names or tuple("payload.txt" for _ in encoder_list)
     frame_lock = Lock()
-    page = browser_page(fps)
+    page = browser_page(fps, names)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -265,8 +296,17 @@ def create_browser_server(encoder: TransferEncoder, fps: int, error: str) -> Thr
                 self._respond(200, "text/html; charset=utf-8", page)
                 return
             if path == "/frame.svg":
+                query = parse_qs(urlsplit(self.path).query)
+                try:
+                    chunk_index = int(query.get("chunk", ["0"])[0])
+                except ValueError:
+                    self.send_error(404)
+                    return
+                if not 0 <= chunk_index < len(encoder_list):
+                    self.send_error(404)
+                    return
                 with frame_lock:
-                    frame = encoder.next_frame()
+                    frame = encoder_list[chunk_index].next_frame()
                     image = render_svg(frame, error)
                 self._respond(200, "image/svg+xml", image)
                 return

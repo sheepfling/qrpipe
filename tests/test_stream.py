@@ -98,8 +98,41 @@ def test_svg_rendering_and_browser_server() -> None:
         assert image.getheader("Cache-Control") == "no-store"
         assert b"<svg" in image.read()
 
+        connection.request("GET", "/frame.svg?chunk=9&n=0")
+        assert connection.getresponse().status == 404
+
         connection.request("GET", "/missing")
         assert connection.getresponse().status == 404
+        connection.close()
+    finally:
+        server.shutdown()
+        worker.join()
+        server.server_close()
+
+
+def test_browser_page_can_select_multiple_chunks() -> None:
+    page = stream.browser_page(10, ("large.part0001-of-0002.txt", "large.part0002-of-0002.txt"))
+    assert b"large.part0001-of-0002.txt" in page
+    assert b"/frame.svg?chunk=" in page
+
+    encoded = stream.pack_file(b"hello", stream.FileMetadata("part.txt", "text/plain"))
+    server = stream.create_browser_server(
+        (
+            stream.TransferEncoder(encoded, 64, 1),
+            stream.TransferEncoder(encoded, 64, 2),
+        ),
+        10,
+        "L",
+        chunk_names=("part-1.txt", "part-2.txt"),
+    )
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        connection = HTTPConnection("127.0.0.1", server.server_port)
+        connection.request("GET", "/frame.svg?chunk=1&n=0")
+        image = connection.getresponse()
+        assert image.status == 200
+        assert b"<svg" in image.read()
         connection.close()
     finally:
         server.shutdown()

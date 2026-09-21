@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import replace
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import NoReturn
 import pytest
 
 from qrpipe import cli
-from qrpipe.stream import FileMetadata, StreamError, TransferEncoder
+from qrpipe.stream import MAX_FILE_BYTES, FileMetadata, StreamError, TransferEncoder
 
 
 class FakeStreamServer:
@@ -41,6 +42,7 @@ def stream_options(**overrides: object) -> cli.StreamOptions:
         preserve_newline=False,
         name=None,
         media_type=None,
+        chunk_size=None,
         frame_bytes=1465,
         fps=24,
         error="L",
@@ -60,7 +62,9 @@ def test_stream_command_formats_vcard_and_opens_a_local_sender(
         packed.append((payload, metadata))
         return b"encoded"
 
-    def fake_server(_encoder: TransferEncoder, _fps: int, _error: str) -> FakeStreamServer:
+    def fake_server(
+        _encoder: TransferEncoder, _fps: int, _error: str, **_kwargs: object
+    ) -> FakeStreamServer:
         return server
 
     def fake_svg(_frame: bytes, _error: str) -> bytes:
@@ -108,7 +112,9 @@ def test_stream_file_input_uses_filename_and_media_type(
         packed.append((payload, metadata))
         return b"encoded"
 
-    def fake_server(_encoder: TransferEncoder, _fps: int, _error: str) -> FakeStreamServer:
+    def fake_server(
+        _encoder: TransferEncoder, _fps: int, _error: str, **_kwargs: object
+    ) -> FakeStreamServer:
         return server
 
     def fake_svg(_frame: bytes, _error: str) -> bytes:
@@ -149,6 +155,22 @@ def test_stream_input_validation_and_metadata() -> None:
     assert cli._stream_metadata(stream_options(name="image.bin")) == FileMetadata(
         "image.bin", "application/octet-stream"
     )
+
+    assert cli._chunk_size("1MiB") == 1024 * 1024
+    assert cli._chunk_size("2048") == 2048
+    with pytest.raises(argparse.ArgumentTypeError, match="2 MiB"):
+        cli._chunk_size("3MiB")
+
+    assert cli._stream_chunks(b"abcdef", stream_options(chunk_size=2)) == (
+        b"ab",
+        b"cd",
+        b"ef",
+    )
+    assert cli._stream_chunks(
+        b"x" * (MAX_FILE_BYTES + 2), stream_options(chunk_size=MAX_FILE_BYTES)
+    ) == (b"x" * MAX_FILE_BYTES, b"xx")
+    with pytest.raises(cli.InputError, match="chunk-size"):
+        cli._stream_chunks(b"x" * (MAX_FILE_BYTES + 1), stream_options())
 
 
 def test_stream_errors_are_reported_without_starting_the_server(
