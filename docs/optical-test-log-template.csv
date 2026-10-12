@@ -1,0 +1,2 @@
+run_id,date_utc,phone_model,phone_os,browser,browser_version,file_mib,expected_sha256,protocol,frame_bytes,fps,qr_size_vmin,screen_brightness,distance_cm,angle,ambient_light,interruption_seconds,receiver_reloaded,resumed,elapsed_seconds,unique_frames,goodput_kib_s,received_bytes,hash_match,save_succeeded,notes
+,,,,,,,,,,,,,,,,,,,,,,,,

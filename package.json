@@ -1,0 +1,13 @@
+{
+  "name": "qrpipe-optical-receiver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:receiver": "node scripts/build_receiver.mjs",
+    "test:receiver": "node --test receiver/test/*.test.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.25.11",
+    "jsqr": "1.4.0"
+  }
+}
