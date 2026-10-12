@@ -80,7 +80,9 @@ def test_svg_rendering_and_browser_server() -> None:
     encoded = stream.pack_file(b"hello", stream.FileMetadata("hello.txt", "text/plain"))
     encoder = stream.TransferEncoder(encoded, 64, 1)
     assert b"<svg" in stream.render_svg(encoder.frame(0), "L")
-    assert b"setTimeout(next,100)" in stream.browser_page(10)
+    assert b"setTimeout(next,delay)" in stream.browser_page(10)
+    assert b"QR size" in stream.browser_page(10)
+    assert b"Frames/s" in stream.browser_page(10)
 
     server = stream.create_browser_server(encoder, 10, "L")
     worker = Thread(target=server.serve_forever, daemon=True)
@@ -124,7 +126,7 @@ def test_browser_page_can_select_multiple_chunks() -> None:
         ),
         10,
         "L",
-        chunk_names=("part-1.txt", "part-2.txt"),
+        page_options=stream.BrowserPageOptions(chunk_names=("part-1.txt", "part-2.txt")),
     )
     worker = Thread(target=server.serve_forever, daemon=True)
     worker.start()

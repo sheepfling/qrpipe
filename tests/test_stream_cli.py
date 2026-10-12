@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import struct
 from dataclasses import replace
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -12,7 +14,9 @@ from typing import NoReturn
 
 import pytest
 
-from qrpipe import cli
+from qrpipe import cli, stream
+from qrpipe.protocols import QRF_PROTOCOL
+from qrpipe.qrf import QrfEncoder
 from qrpipe.stream import MAX_FILE_BYTES, FileMetadata, StreamError, TransferEncoder
 
 
@@ -40,6 +44,8 @@ def stream_options(**overrides: object) -> cli.StreamOptions:
         file=None,
         payload_type="text",
         preserve_newline=False,
+        protocol="decimen",
+        receiver_url=None,
         name=None,
         media_type=None,
         chunk_size=None,
@@ -135,11 +141,117 @@ def test_stream_file_input_uses_filename_and_media_type(
     assert packed == [(b"# Notes\n", FileMetadata("notes.md", "application/x-notes"))]
 
 
+def test_qrf_stream_uses_its_receiver_and_text_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeStreamServer()
+    encoders: list[object] = []
+
+    def fake_server(encoder: object, *_args: object, **_kwargs: object) -> FakeStreamServer:
+        encoders.append(encoder)
+        return server
+
+    def fake_svg(_frame: bytes | str, _error: str) -> bytes:
+        return b"<svg>"
+
+    monkeypatch.setattr(cli, "create_browser_server", fake_server)
+    monkeypatch.setattr(cli, "render_svg", fake_svg)
+
+    def fixed_session(_maximum: int) -> int:
+        return 6
+
+    monkeypatch.setattr(cli.secrets, "randbelow", fixed_session)
+    stdout = StringIO()
+
+    result = cli.run(
+        ["stream", "hello", "--protocol", "qrf", "--frame-bytes", "512"],
+        stdin=BytesIO(),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert result == cli.EXIT_OK
+    assert len(encoders) == 1
+    assert isinstance(encoders[0], QrfEncoder)
+    assert encoders[0].metadata_frame.startswith("M:3.0:payload.txt:text%2Fplain:")
+    assert QRF_PROTOCOL.receiver_url in stdout.getvalue()
+    assert "experimental" in stdout.getvalue()
+
+
+def test_chunked_decimen_stream_sends_manifest_before_parts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source = tmp_path / "sample.bin"
+    source.write_bytes(b"abcde")
+    server = FakeStreamServer()
+    captured_encoders: list[stream.FrameEncoder] = []
+    captured_options: list[stream.BrowserPageOptions] = []
+
+    def fake_server(
+        encoders: stream.FrameEncoder | tuple[stream.FrameEncoder, ...],
+        _fps: int,
+        _error: str,
+        **kwargs: object,
+    ) -> FakeStreamServer:
+        captured_encoders.extend(encoders if isinstance(encoders, tuple) else (encoders,))
+        page_options = kwargs["page_options"]
+        assert isinstance(page_options, stream.BrowserPageOptions)
+        captured_options.append(page_options)
+        return server
+
+    def fake_svg(_frame: bytes | str, _error: str) -> bytes:
+        return b"<svg>"
+
+    def fixed_session(_maximum: int) -> int:
+        return 1
+
+    monkeypatch.setattr(cli, "create_browser_server", fake_server)
+    monkeypatch.setattr(cli, "render_svg", fake_svg)
+    monkeypatch.setattr(cli.secrets, "randbelow", fixed_session)
+    stdout = StringIO()
+    result = cli.run(
+        ["stream", "--file", str(source), "--chunk-size", "2"],
+        stdin=BytesIO(),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert result == cli.EXIT_OK
+    assert len(captured_encoders) == 4
+    page_options = captured_options[0]
+    assert page_options.chunk_names == (
+        "qrpipe-transfer-manifest.json",
+        "sample.part0001-of-0003.bin",
+        "sample.part0002-of-0003.bin",
+        "sample.part0003-of-0003.bin",
+    )
+    session_ids: list[int] = []
+    for encoder in captured_encoders:
+        assert isinstance(encoder, TransferEncoder)
+        session_ids.append(encoder._session_id)
+    assert len(set(session_ids)) == 4
+    assert isinstance(captured_encoders[0], TransferEncoder)
+    manifest_frame_payload = captured_encoders[0]._payload
+    name_length, media_length = struct.unpack_from("<HH", manifest_frame_payload, 6)
+    manifest_start = 16 + name_length + media_length
+    manifest = json.loads(manifest_frame_payload[manifest_start:].decode("utf-8"))
+    assert manifest["fileName"] == "sample.bin"
+    assert manifest["size"] == 5
+    assert manifest["chunkCount"] == 3
+    assert manifest["sha256"] == "36bbe50ed96841d10443bcb670d6554f0a34b761be67ec9c4a8ad2c0c44ca42c"
+    assert "scan the manifest" in stdout.getvalue()
+
+
 def test_stream_input_validation_and_metadata() -> None:
     with pytest.raises(cli.InputError, match="cannot"):
         cli.parse_stream_options(["literal", "--file", "payload.txt"])
     with pytest.raises(cli.InputError, match="only available"):
         cli.parse_stream_options(["--file", "payload.txt", "--type", "vcard"])
+    qrf_options = cli.parse_stream_options(["--protocol", "qrf"])
+    assert qrf_options.protocol == "qrf"
+    assert (qrf_options.frame_bytes, qrf_options.fps, qrf_options.error) == (512, 8, "H")
+    receiver_options = cli.parse_stream_options(["--receiver-url", "https://example.test/receiver/"])
+    assert receiver_options.receiver_url == "https://example.test/receiver/"
+    with pytest.raises(cli.InputError, match="HTTPS"):
+        cli.parse_stream_options(["--receiver-url", "http://example.test/receiver/"])
     with pytest.raises(cli.InputError, match="regular"):
         cli.read_stream_payload(stream_options(file=Path()), BytesIO())
     with pytest.raises(cli.InputError, match="must not be empty"):

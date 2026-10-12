@@ -6,21 +6,24 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from json import dumps
 from math import ceil
 from threading import Lock
-from typing import Final
+from typing import Final, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 from segno import make_qr
+
+from qrpipe.protocols import DECIMEN_PROTOCOL, StreamProtocol
 
 FRAME_HEADER_LEN: Final = 20
 MAX_FILE_BYTES: Final = 2 * 1024 * 1024
 MAX_FRAME_BYTES: Final = 2953
 MIN_FRAME_BYTES: Final = FRAME_HEADER_LEN + 1
-RECEIVER_URL: Final = "https://optical-transfer.tongatron.org/"
+RECEIVER_URL: Final = DECIMEN_PROTOCOL.receiver_url
 _MASK32: Final = 0xFFFFFFFF
 _MAX_UNSIGNED_SHORT: Final = 0xFFFF
 _MAGIC: Final = b"\xd1\x0c"
@@ -34,10 +37,20 @@ class StreamError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class FileMetadata:
-    """The file attributes restored by a Decimen receiver."""
+    """File attributes carried by a stream protocol."""
 
     name: str
     media_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class BrowserPageOptions:
+    """Optional sender-page labels and display settings."""
+
+    frame_bytes: int = 0
+    receiver_url: str | None = None
+    chunk_names: tuple[str, ...] = ()
+    protocol: StreamProtocol = DECIMEN_PROTOCOL
 
 
 def pack_file(payload: bytes, metadata: FileMetadata) -> bytes:
@@ -218,8 +231,8 @@ class TransferEncoder:
         return frame
 
 
-def render_svg(frame: bytes, error: str) -> bytes:
-    """Render one binary Decimen frame as an SVG QR image."""
+def render_svg(frame: bytes | str, error: str) -> bytes:
+    """Render one binary or text stream frame as an SVG QR image."""
     try:
         qr = make_qr(frame, error=error, boost_error=False)
     except (TypeError, ValueError) as exc:
@@ -230,10 +243,20 @@ def render_svg(frame: bytes, error: str) -> bytes:
     return output.getvalue()
 
 
-def browser_page(fps: int, chunk_names: tuple[str, ...] = ()) -> bytes:
+def browser_page(
+    fps: int,
+    chunk_names: tuple[str, ...] = (),
+    *,
+    frame_bytes: int = 0,
+    receiver_url: str | None = None,
+    protocol: StreamProtocol = DECIMEN_PROTOCOL,
+) -> bytes:
     """Return the self-contained sender page served only on localhost."""
-    delay = round(1000 / fps)
     names = chunk_names or ("payload.txt",)
+    receiver_name = escape("QR Pipe local receiver" if receiver_url else protocol.receiver_name)
+    receiver_url = escape(receiver_url or protocol.receiver_url, quote=True)
+    protocol_label = escape(protocol.label)
+    experimental = " — experimental" if protocol.experimental else ""
     names_json = (
         dumps(names, ensure_ascii=True)
         .replace("<", "\\u003c")
@@ -245,9 +268,11 @@ def browser_page(fps: int, chunk_names: tuple[str, ...] = ()) -> bytes:
 <title>qrpipe optical stream</title>
 <style>
 body{{margin:0;background:#111;color:#eee;font:16px system-ui;display:grid;
-min-height:100vh;place-items:center}}
-main{{display:grid;gap:1rem;justify-items:center;width:min(92vmin,1200px)}}
-img{{width:min(92vmin,1200px);height:min(92vmin,1200px);image-rendering:pixelated;background:#fff}}
+min-height:100vh;min-height:100dvh;place-items:center}}
+main{{display:grid;gap:.65rem;justify-items:center;width:min(96vw,1200px);padding:.5rem}}
+img{{width:min(var(--qr-size,92vmin),calc(100vw - 24px),calc(100dvh - 250px));
+height:min(var(--qr-size,92vmin),calc(100vw - 24px),calc(100dvh - 250px));
+image-rendering:pixelated;background:#fff}}
 button{{font:inherit;padding:.5rem 1rem;cursor:pointer}}
 button:disabled{{cursor:default;opacity:.45}}
 #chunks{{display:grid;gap:.35rem;width:100%;max-height:10rem;overflow:auto}}
@@ -256,11 +281,23 @@ border-radius:.35rem;cursor:pointer}}
 #chunks label.current{{background:#333}}
 #chunks label.done{{color:#8f8}}
 #controls{{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}}
+.settings{{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;justify-content:center}}
+small{{color:#ccc;text-align:center}}
 </style>
 <main><div id=\"progress\"></div><div id=\"chunks\"></div>
-<div><a href=\"{RECEIVER_URL}\" target=\"_blank\" rel=\"noopener\">Open Decimen receiver</a>
+<div>Protocol: {protocol_label}{experimental}</div>
+<div><a href=\"{receiver_url}\" target=\"_blank\" rel=\"noopener\">Open {receiver_name} receiver</a>
 on the phone, then return here to scan.</div>
 <img id=\"qr\" alt=\"Animated QR transfer\">
+<div class=\"settings\">
+<label>QR size <input id=\"size\" type=\"range\" min=\"45\" max=\"96\" value=\"92\">
+<output id=\"sizeValue\">92</output>vmin</label>
+<label>Frames/s <input id=\"fps\" type=\"range\" min=\"1\" max=\"30\" value=\"{fps}\">
+<output id=\"fpsValue\">{fps}</output></label>
+</div>
+<small id=\"displayInfo\"></small>
+<small>QR density: {frame_bytes if frame_bytes else "receiver default"} frame bytes
+(set with qrpipe stream --frame-bytes). If scanning fails, lower density and move closer.</small>
 <div id=\"controls\"><button id=\"next\">Mark scanned → Next</button>
 <button id=\"undo\">Undo last</button><button id=\"reset\">Reset checklist</button>
 <button id=\"fullscreen\">Fullscreen</button></div></main>
@@ -268,7 +305,20 @@ on the phone, then return here to scan.</div>
 const qr=document.querySelector('#qr');const progress=document.querySelector('#progress');
 const chunks=document.querySelector('#chunks');const nextButton=document.querySelector('#next');
 const undoButton=document.querySelector('#undo');const resetButton=document.querySelector('#reset');
+const size=document.querySelector('#size');const sizeValue=document.querySelector('#sizeValue');
+const fpsControl=document.querySelector('#fps');const fpsValue=document.querySelector('#fpsValue');
+const displayInfo=document.querySelector('#displayInfo');
 const names={names_json};let current=0;let frame=0;const complete=new Set();const history=[];
+let delay=Math.round(1000/Number(fpsControl.value));
+function updateDisplay(){{
+  document.documentElement.style.setProperty('--qr-size',size.value+'vmin');
+  sizeValue.value=size.value;fpsValue.value=fpsControl.value;
+  displayInfo.textContent='Viewport '+innerWidth+'x'+innerHeight+' CSS px · device scale '+
+    devicePixelRatio+'x · QR display '+Math.round(qr.clientWidth)+' px';
+}}
+size.oninput=updateDisplay;
+fpsControl.oninput=()=>{{delay=Math.round(1000/Number(fpsControl.value));updateDisplay()}};
+window.addEventListener('resize',updateDisplay);window.addEventListener('orientationchange',updateDisplay);
 for (const [index,name] of names.entries()){{
   const label=document.createElement('label');const input=document.createElement('input');
   input.type='checkbox';input.dataset.index=index;input.onchange=()=>{{
@@ -294,32 +344,52 @@ undoButton.onclick=()=>{{const previous=history.pop();
 if(previous!==undefined){{complete.delete(previous);current=previous;frame=0;}}update();}};
 resetButton.onclick=()=>{{complete.clear();history.length=0;current=0;frame=0;update();}};
 function next(){{qr.src='/frame.svg?chunk='+current+'&n='+frame++;
-qr.onload=()=>setTimeout(next,{delay});
+qr.onload=()=>setTimeout(next,delay);
 qr.onerror=()=>setTimeout(next,250)}}
+updateDisplay();
 update();
 next();
 </script>
 """.encode()
 
 
+class FrameEncoder(Protocol):
+    """The small shared surface required by the local QR sender."""
+
+    def frame(self, sequence: int) -> bytes | str:
+        """Return a deterministic frame for a sequence number."""
+        ...
+
+    def next_frame(self) -> bytes | str:
+        """Return the next frame in the transfer sequence."""
+        ...
+
+
 def create_browser_server(
-    encoders: TransferEncoder | tuple[TransferEncoder, ...],
+    encoders: FrameEncoder | tuple[FrameEncoder, ...],
     fps: int,
     error: str,
     *,
-    chunk_names: tuple[str, ...] = (),
+    page_options: BrowserPageOptions | None = None,
 ) -> ThreadingHTTPServer:
     """Create a localhost-only server which supplies endless QR image streams."""
-    encoder_list = (encoders,) if isinstance(encoders, TransferEncoder) else encoders
+    encoder_list = encoders if isinstance(encoders, tuple) else (encoders,)
     if not encoder_list:
         msg = "stream needs at least one encoder"
         raise StreamError(msg)
-    if chunk_names and len(chunk_names) != len(encoder_list):
+    page_options = page_options or BrowserPageOptions()
+    if page_options.chunk_names and len(page_options.chunk_names) != len(encoder_list):
         msg = "stream chunk names must match encoders"
         raise StreamError(msg)
-    names = chunk_names or tuple("payload.txt" for _ in encoder_list)
+    names = page_options.chunk_names or tuple("payload.txt" for _ in encoder_list)
     frame_lock = Lock()
-    page = browser_page(fps, names)
+    page = browser_page(
+        fps,
+        names,
+        frame_bytes=page_options.frame_bytes,
+        receiver_url=page_options.receiver_url,
+        protocol=page_options.protocol,
+    )
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
