@@ -142,8 +142,9 @@ Open `http://localhost:8000` on the Mac to inspect the built app. The public rec
 [`https://sheepfling.github.io/qrpipe/`](https://sheepfling.github.io/qrpipe/). The manual
 `.github/workflows/deploy-pages.yml` workflow tests and builds the selected branch, then publishes
 only `receiver/dist`; it does not commit build output. To redeploy, run **Deploy QR Pipe receiver to
-GitHub Pages** from Actions with `feat/optical-10mib-harness` selected. The workflow file must also
-exist on the default branch for GitHub to offer manual dispatch.
+GitHub Pages** from Actions and set `source_ref` to `feat/optical-10mib-harness`. The workflow file
+must also exist on the default branch for GitHub to offer manual dispatch; its explicit `source_ref`
+input keeps the receiver source on the review branch.
 
 Reproduce and verify the static build and hosted asset paths:
 
