@@ -9,6 +9,7 @@
   QR transfer.
 - Add an optional static Decimen receiver and a bounded 10 MiB multipart, local-only camera test
   harness with resumable browser storage and whole-file SHA-256 verification.
+- Add a manual GitHub Pages workflow that builds and publishes only the static receiver artifact.
 - Add viewport and playback controls plus a reproducible 10 MiB optical test-file generator.
 - Preserve receiver filename and media-type metadata, including `text/markdown` and `text/vcard`.
 - Add deterministic protocol-vector, browser-server, and command-boundary coverage for streams.

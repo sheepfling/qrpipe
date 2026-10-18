@@ -1,10 +1,10 @@
 # QR Pipe optical test plan
 
-This guide covers the current browser receiver and Decimen sender. The receiver is a static app; the
-receiver URL must be HTTPS on the phone before its camera API will work. GitHub Pages is not
-currently enabled for this repository, so the phone steps below become actionable after the app is
-available at the owned URL. Do not substitute a third-party receiver: the current multipart flow
-depends on this checkout's receiver behavior.
+This guide covers the current browser receiver and Decimen sender. The public static receiver is
+hosted at `https://sheepfling.github.io/qrpipe/`; its HTTPS origin is required for phone camera
+access. The site serves the app files only. QR decoding, storage, reassembly, and hash verification
+run in the browser. Do not substitute a third-party receiver: the current multipart flow depends
+on this checkout's receiver behavior.
 
 ## 1. Prepare deterministic files
 
@@ -29,11 +29,17 @@ Expected 10 MiB SHA-256: `cc7186a333a481f387b35cd54cf4625f582d958544f656d43d207b
 
 ## 2. Prepare sender and phone
 
-Set the receiver URL only after the owned HTTPS page is published and verified:
+Set the owned HTTPS receiver URL:
 
 ```sh
 RECEIVER_URL=https://sheepfling.github.io/qrpipe/
 ```
+
+The manual deployment workflow is `.github/workflows/deploy-pages.yml`. It runs receiver tests,
+builds `receiver/src` with `npm run build:receiver`, then uploads only `receiver/dist` as the Pages
+artifact. Reproduce the build locally with `npm ci`, `npm run test:receiver`, and
+`npm run build:receiver`. Deployment and hosted asset/service-worker checks are documented in the
+README. Do not add `receiver/dist` to source control.
 
 Open that URL directly in the phone's browser, load it once while online so its service worker can
 cache the static app, and verify that the receiver page opens. For offline testing, turn off Wi-Fi

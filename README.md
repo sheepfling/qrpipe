@@ -138,12 +138,41 @@ npm run build:receiver
 python3 -m http.server 8000 --bind 127.0.0.1 --directory receiver/dist
 ```
 
-Open `http://localhost:8000` on the Mac to inspect the built app. iPhone camera access requires a
-secure context, so the phone test needs the app hosted at an HTTPS URL; this checkout has not been
-published or enabled on GitHub Pages. After an approved Pages deployment is available, open
-`https://sheepfling.github.io/qrpipe/` on the iPhone, install/cache the page while online, then turn off Wi-Fi and cellular
-data before scanning. Static app assets can then be served from cache; the file contents travel
-over the optical link only.
+Open `http://localhost:8000` on the Mac to inspect the built app. The public receiver is hosted at
+[`https://sheepfling.github.io/qrpipe/`](https://sheepfling.github.io/qrpipe/). The manual
+`.github/workflows/deploy-pages.yml` workflow tests and builds the selected branch, then publishes
+only `receiver/dist`; it does not commit build output. To redeploy, run **Deploy QR Pipe receiver to
+GitHub Pages** from Actions with `feat/optical-10mib-harness` selected. The workflow file must also
+exist on the default branch for GitHub to offer manual dispatch.
+
+Reproduce and verify the static build and hosted asset paths:
+
+```console
+npm ci
+npm run test:receiver
+npm run build:receiver
+PAGES_BASE=https://sheepfling.github.io/qrpipe
+curl -fsS "$PAGES_BASE/" -o /dev/null
+for asset in app.js styles.css manifest.webmanifest icon.svg sw.js LICENSE-jsQR THIRD_PARTY_NOTICES.md; do
+  curl -fsS "$PAGES_BASE/$asset" -o /dev/null
+done
+```
+
+In the hosted browser, wait for registration and run this in DevTools:
+
+```js
+navigator.serviceWorker.getRegistration().then((registration) => ({
+  scope: registration?.scope,
+  script: registration?.active?.scriptURL,
+}));
+```
+
+Expected scope: `https://sheepfling.github.io/qrpipe/`; expected script:
+`https://sheepfling.github.io/qrpipe/sw.js`. Reload once and confirm the page remains controlled
+by that worker. The `./` resource paths and worker scope stay under `/qrpipe/`. Camera access is
+secure-context-only and begins only after the phone user taps **Start camera** and grants
+permission. Load the page once while online before an offline-static-app check. QR file bytes stay
+in the browser and travel over the optical link; the public host serves only the static app.
 
 Generate a reproducible file without adding a binary to the repository:
 
