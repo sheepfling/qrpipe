@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob:; media-src 'self' blob:; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="theme-color" content="#101820">
+  <meta name="description" content="Private, local QR Pipe optical transfer receiver">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <title>QR Pipe local receiver</title>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">QR PIPE · LOCAL RECEIVER</div>
+      <h1>Receive a file</h1>
+      <p>Scan monochrome Decimen QR frames. Received bytes stay in this browser and are saved locally on this device.</p>
+    </header>
+
+    <section class="camera-card" aria-labelledby="camera-title">
+      <div class="section-heading">
+        <div><h2 id="camera-title">Camera</h2><p id="status" role="status">Camera is off. Start it when you are ready to scan.</p></div>
+        <div class="camera-actions"><button id="startCamera" class="primary">Start camera</button><button id="stopCamera" disabled>Stop</button></div>
+      </div>
+      <div id="videoBox"><video id="video" playsinline muted></video><div id="cameraPlaceholder">Camera preview appears here after you tap Start camera.</div></div>
+      <canvas id="canvas" hidden></canvas>
+      <div id="decodeProgress" class="progress-text">No active QR session</div>
+    </section>
+
+    <section id="transfers" class="transfer-card" aria-labelledby="transfer-title">
+      <div class="section-heading"><div><h2 id="transfer-title">Saved transfers</h2><p id="storageStatus">Checking local browser storage…</p></div><button id="clearData" class="quiet">Clear receiver data</button></div>
+      <div id="transferList" class="transfer-list"><p class="muted">No transfer manifests saved yet.</p></div>
+    </section>
+
+    <footer><p>Camera access starts only after your tap. QR decoding, partial-frame recovery, assembly and SHA-256 verification run locally. No file bytes are sent over the network.</p><p>For the test, scan the manifest first, then each numbered part. Keep this page open while a part is decoding; completed parts survive a page reload.</p></footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

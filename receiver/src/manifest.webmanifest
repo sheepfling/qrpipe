@@ -1,0 +1,11 @@
+{
+  "name": "QR Pipe Local Receiver",
+  "short_name": "QR Pipe",
+  "description": "Offline-capable local optical file receiver",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101820",
+  "theme_color": "#101820",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}

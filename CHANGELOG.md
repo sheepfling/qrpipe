@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Add protocol-aware animated QR streams, preserving Decimen as the default and adding an
+  experimental QRF 3.0 legacy text-frame sender.
+- Add checklist-based chunked streams for inputs larger than Decimen's 2 MiB per-file limit.
+- Add `qrpipe stream`, a localhost browser sender for Decimen-compatible, fountain-coded animated
+  QR transfer.
+- Add an optional static Decimen receiver and a bounded 10 MiB multipart, local-only camera test
+  harness with resumable browser storage and whole-file SHA-256 verification.
+- Add a manual GitHub Pages workflow that builds and publishes only the static receiver artifact.
+- Add viewport and playback controls plus a reproducible 10 MiB optical test-file generator.
+- Preserve receiver filename and media-type metadata, including `text/markdown` and `text/vcard`.
+- Add deterministic protocol-vector, browser-server, and command-boundary coverage for streams.
+
 ## 0.1.1 - 2026-09-15
 
 - Restore Python 3.10 compatibility and test Python 3.10 through 3.14 on every CI platform.
