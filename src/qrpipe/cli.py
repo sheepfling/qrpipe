@@ -21,6 +21,7 @@ from typing import BinaryIO, Final, Literal, Protocol, TextIO, cast
 from segno import QRCode, helpers, make_qr
 
 from qrpipe import __version__
+from qrpipe.offline_html import save_html
 from qrpipe.owned import (
     DEFAULT_PART_BYTES,
     MAX_PARTS,
@@ -114,6 +115,7 @@ class StreamOptions:
     error: ErrorLevel
     open_browser: bool
     gif_output: Path | None = None
+    html_output: Path | None = None
 
 
 def _positive_int(value: str) -> int:
@@ -325,13 +327,20 @@ def build_stream_parser() -> argparse.ArgumentParser:
         "--open",
         dest="open_browser",
         action="store_true",
-        help="open the local sender page in the default browser",
+        help="open the sender page or saved export in the default browser",
     )
-    parser.add_argument(
+    export = parser.add_mutually_exclusive_group()
+    export.add_argument(
         "--gif",
         dest="gif_output",
         type=Path,
         help="save a small qrpipe-protocol transfer as a looping GIF instead of serving it",
+    )
+    export.add_argument(
+        "--html",
+        dest="html_output",
+        type=Path,
+        help="save a self-contained qrpipe sender webpage instead of serving it",
     )
     return parser
 
@@ -400,6 +409,7 @@ def parse_stream_options(argv: Sequence[str] | None = None) -> StreamOptions:
         else (_DEFAULT_QRF_ERROR if is_mobile else _DEFAULT_DECIMEN_ERROR),
         open_browser=cast(bool, namespace.open_browser),
         gif_output=cast(Path | None, namespace.gif_output),
+        html_output=cast(Path | None, namespace.html_output),
     )
 
 
@@ -723,6 +733,25 @@ def _open_gif(path: Path) -> None:
         raise InputError(msg)
 
 
+def _open_html(path: Path) -> None:
+    """Show an offline sender page in the system browser."""
+    if sys.platform == "darwin":
+        try:
+            subprocess.run(
+                ["open", str(path.resolve())],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            msg = "could not open offline webpage"
+            raise InputError(msg) from exc
+        return
+    if not webbrowser.open_new(path.resolve().as_uri()):
+        msg = "could not open offline webpage in the system browser"
+        raise InputError(msg)
+
+
 def _gif_tools() -> _GifTools:
     """Load optional offline image tools only for GIF commands."""
     try:
@@ -785,6 +814,43 @@ def _save_stream_gif(
     if options.open_browser:
         _open_gif(path)
     return EXIT_OK
+
+
+def _save_stream_html(
+    options: StreamOptions,
+    protocol_name: str,
+    encoders: tuple[FrameEncoder, ...],
+    names: tuple[str, ...],
+    output_stream: TextIO,
+) -> int:
+    """Export a self-contained multipart qrpipe sender webpage."""
+    path = options.html_output
+    assert path is not None
+    if protocol_name != OWNED_PROTOCOL.name:
+        msg = "--html requires --protocol qrpipe"
+        raise InputError(msg)
+    owned = tuple(cast(OwnedEncoder, encoder) for encoder in encoders)
+    image_count = save_html(owned, path, names=names, fps=options.fps, error=options.error)
+    print(
+        f"Saved offline QR webpage with {len(owned)} part(s), {image_count} QR images: {path}",
+        file=output_stream,
+    )
+    if options.open_browser:
+        _open_html(path)
+    return EXIT_OK
+
+
+def _save_stream_export(
+    options: StreamOptions,
+    protocol_name: str,
+    encoders: tuple[FrameEncoder, ...],
+    names: tuple[str, ...],
+    output_stream: TextIO,
+) -> int:
+    """Dispatch the requested saved optical format."""
+    if options.gif_output is not None:
+        return _save_stream_gif(options, protocol_name, encoders, output_stream)
+    return _save_stream_html(options, protocol_name, encoders, names, output_stream)
 
 
 def _validate_stream_frames(encoder: FrameEncoder, protocol_name: str, error: str) -> None:
@@ -872,8 +938,8 @@ def run_stream(
                 for chunk, name in zip(chunks, chunk_names, strict=True)
             )
         _validate_stream_frames(encoders[0], protocol.name, options.error)
-        if options.gif_output is not None:
-            return _save_stream_gif(options, protocol.name, encoders, output_stream)
+        if options.gif_output is not None or options.html_output is not None:
+            return _save_stream_export(options, protocol.name, encoders, chunk_names, output_stream)
         server = create_browser_server(
             encoders if total > 1 else encoders[0],
             options.fps,

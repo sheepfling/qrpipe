@@ -27,6 +27,10 @@ can also be saved as a looping GIF with `qrpipe send notes.md --gif notes.gif`; 
 the GIF displayed on the computer in the same way. Install the local `.[gif]` extra first for GIF
 export and readback.
 
+For a larger saved transfer, `qrpipe send notes.md --html notes.html` creates a self-contained
+offline sender webpage with part controls. Copy it to any desktop computer and open it in a
+browser; it does not contact a server. The phone still uses this receiver app.
+
 Open the sender page on the computer. Tap **Start scanning** in the iPhone app and point the camera
 at the QR image. When the app says **Part N saved**, tap **Part saved on phone → Next** on the
 computer. When all parts are verified, tap **Save or share verified file** on the phone.

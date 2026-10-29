@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add self-contained offline HTML sender export with multipart QP1 playback and a checklist.
 - Add a `qrpipe send FILE` shortcut that opens the local QR sender, plus optional looping GIF
   export and verified offline GIF readback for small transfers.
 - Add a qrpipe-owned optical transfer format and iPhone receiver, with frame integrity checks,

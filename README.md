@@ -120,11 +120,26 @@ camera-to-receiver smoke test before relying on it for an important transfer. Ai
 and Pharos also use animated QR transfer, but their public product descriptions do not establish a
 shared wire protocol, so `qrpipe` does not claim compatibility with them yet.
 
-### Quick sender and offline GIF test
+### Quick sender and offline webpages
 
 `qrpipe send FILE` starts the qrpipe-protocol sender and opens its page in the system browser
 automatically. The page runs on the computer only; the iPhone app reads the display with its
 camera. For a piped payload, use `cat notes.md | qrpipe send --name notes.md`.
+
+To save a durable sender page, use `qrpipe send notes.md --html notes.html`. It opens the page
+automatically. The HTML contains the QR images and playback controls, works from a local file in
+a desktop browser, and needs no running Python process or network connection after export. It
+keeps the part checklist, Undo, Pause, and Fullscreen controls. The qrpipe iPhone receiver scans
+each part and verifies the assembled file. You can copy the page to another computer and open it
+there; the receiver phone still needs the qrpipe app. The page contains the source data encoded as
+QR images, so handle it like the original file.
+
+HTML export supports multiple parts and at most 32,768 precomputed QR images. This keeps one
+portable file reasonably bounded; use the live sender for bigger inputs. It does not make a
+large optical transfer fast: a 1 MiB file needs at least about eight minutes at the default
+settings before missed camera frames. Export time and HTML size grow with the input. A
+browser-only receiver is a separate feature that needs an offline QR decoder and phone browser
+testing.
 
 An optional GIF export makes a small transfer replayable without a running sender. Its reader
 decodes QR images locally, verifies the file hash, and writes the restored bytes:
@@ -136,9 +151,10 @@ qrpipe receive-gif notes.gif -o restored.md
 ```
 
 The `send` shortcut opens the GIF in Safari on macOS, or the system browser elsewhere. GIF export supports
-one part and at most 512 QR frames (about 70 KiB at the default frame size); use the live sender
-for larger transfers. Blank or unreadable QR frames can be recovered from repair frames. Damage to
-the GIF file structure itself may prevent any frames from being read. Pillow and zxing-cpp are
+one part and at most 512 QR frames (about 70 KiB at the default frame size); use an offline HTML
+page or the live sender for larger transfers. Blank or unreadable QR frames can be recovered from
+repair frames. Damage to the GIF structure itself may prevent any frames from being read.
+Pillow and zxing-cpp are
 optional local libraries for GIF work; neither is a hosted receiver or network service.
 If `-o` is omitted, the reader uses the embedded filename and refuses to overwrite an existing
 file.
