@@ -59,41 +59,66 @@ without a decode/re-encode round trip.
 
 ## Animated optical transfer
 
-`qrpipe stream` displays a Decimen-compatible, fountain-coded QR stream. The receiver can join
-mid-transfer and recover the original bytes even when it misses frames. It is intended for moving
-a small file through a screen-to-camera link, not for the normal Camera app.
+`qrpipe stream` displays an animated QR stream through a local browser. It is intended for
+moving a small file through a screen-to-camera link, not for the normal Camera app.
 
 ```console
 cat notes.md | qrpipe stream --name notes.md --mime text/markdown --open
 qrpipe stream --file contact.vcf --open
 printf '%s' '+1 (555) 010-1234' | qrpipe stream --type phone --name phone.txt --open
 qrpipe stream --file large.txt --chunk-size 1MiB --open
+qrpipe stream --protocol qrf --file notes.md --frame-bytes 512 --open
+qrpipe stream --protocol qrpipe --file large.txt --open
 ```
 
 The command starts a sender page on `127.0.0.1` and prints its URL. `--open` launches that local
-page in the system browser; the receiving phone never connects to the sender. Open the
-[Decimen receiver](https://optical-transfer.tongatron.org/) on the phone, point it at the animated
-QR code, and save the reconstructed file.
+page in the system browser; the receiving phone never connects to the sender. Choose the matching
+receiver before scanning:
 
-- `--frame-bytes` controls QR density from 32 through 2953 bytes per frame (default: 1465).
-- `--fps` controls playback from 1 through 30 frames per second (default: 24).
-- `--error` / `--qr-error` sets QR symbol error correction; `L` is the default because the
-  fountain layer already recovers whole missed frames.
+| `--protocol` | Receiver | Status |
+| --- | --- | --- |
+| `decimen` (default) | [Decimen receiver](https://optical-transfer.tongatron.org/) | Stable default |
+| `qrf` | [QRF browser receiver](https://qr-transfer.github.io/qrf/vdf-qr-decoder.html) | Experimental |
+| `qrpipe` | [qrpipe Receiver iPhone app](ios/README.md) | Experimental, no receiver service |
+
+These are whole transfer protocols, not interchangeable “fountain modes”: framing, metadata,
+checksums, and receiver behavior all need to agree. The QRF adapter emits
+[QRF's documented legacy `M:` and `D:` text frames](https://github.com/qr-transfer/qrf/blob/main/encoder.md)
+with systematic data plus XOR redundancy. It has no runtime dependency on QRF and deliberately
+does not bundle its receiver or compression codecs.
+
+- `--frame-bytes` controls QR density from 32 through 2953. Decimen defaults to 1465; QRF
+  and qrpipe default to a phone-friendly 512 and require at least 256.
+- `--fps` controls playback from 1 through 30 frames per second. Decimen defaults to 24; QRF
+  and qrpipe default to 8 so a phone has time to recognize each frame.
+- `--error` / `--qr-error` sets QR symbol error correction. Decimen defaults to `L` because its
+  fountain layer already recovers whole missed frames; QRF and qrpipe default to `H`.
 - `--file` transfers arbitrary bytes and restores the original filename. Piped or literal data
   uses `--name` (default: `payload.txt`); vCards default to `contact.vcf` and `text/vcard`.
 - `--chunk-size` splits input into independently recoverable parts. In the sender page, scan the
-  current part, press **Mark scanned → Next**, and save it on the receiver. Use **Undo last** or
-  the checklist if you need to correct a goof, then concatenate the saved parts in filename order.
-  It can also force smaller test files into multiple parts.
+  current part, save it on the receiver, then press **Mark scanned → Next**. Use **Undo last** or
+  the checklist if you need to correct a goof. The external receivers save independent parts;
+  concatenate those parts in filename order. The qrpipe iPhone receiver verifies and reassembles
+  parts automatically. `--chunk-size` can also force smaller test files into multiple parts.
 
-The Decimen wire format has a 2 MiB input limit per part. Chunked transfer is a sender-side
-convenience; the stock receiver does not yet reassemble the parts automatically. A stream is
-visible to any camera that can see the display and is not encrypted. Use it only where optical
-transfer is permitted; it is not a way to bypass an organization's information-security controls.
+`--protocol qrpipe` splits input into 256 KiB parts by default and accepts up to 64 MiB total
+across at most 512 parts. It includes a file SHA-256, a SHA-256 for each part, and a CRC for each
+QR data frame. The app keeps
+verified parts after a restart, then automatically assembles the file and offers it through the
+iPhone share sheet. Wait for **Part saved** on the phone before advancing the computer's checklist.
+The transfer itself uses only screen and camera; installing the app requires Xcode and iPhone
+signing. See [iPhone setup](ios/README.md) and the [wire format](docs/OPTICAL_PROTOCOL_V1.md).
 
-This release targets Decimen's documented sender/receiver format. AirQR, LightDrop, and Pharos
-also use animated QR transfer, but their public product descriptions do not establish a shared
-wire protocol, so `qrpipe` does not claim compatibility with them yet.
+At the conservative default, a 256 KiB part needs about 911 source frames, roughly two minutes
+for the first pass at 8 frames per second. Missed frames and manual part changes add time. This is
+for occasional files, not a fast bulk-transfer substitute. A stream is visible to any camera that
+can see the display and is not encrypted. Use it only where optical transfer is permitted.
+
+`decimen` targets Decimen's documented sender/receiver format. `qrf` is an experimental adapter
+tested against QRF's published legacy frame grammar and reconstruction rules; run a real
+camera-to-receiver smoke test before relying on it for an important transfer. AirQR, LightDrop,
+and Pharos also use animated QR transfer, but their public product descriptions do not establish a
+shared wire protocol, so `qrpipe` does not claim compatibility with them yet.
 
 ## Input and output semantics
 

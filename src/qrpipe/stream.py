@@ -6,21 +6,24 @@ import struct
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from json import dumps
 from math import ceil
 from threading import Lock
-from typing import Final
+from typing import Final, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 from segno import make_qr
+
+from qrpipe.protocols import DECIMEN_PROTOCOL, OWNED_PROTOCOL, StreamProtocol
 
 FRAME_HEADER_LEN: Final = 20
 MAX_FILE_BYTES: Final = 2 * 1024 * 1024
 MAX_FRAME_BYTES: Final = 2953
 MIN_FRAME_BYTES: Final = FRAME_HEADER_LEN + 1
-RECEIVER_URL: Final = "https://optical-transfer.tongatron.org/"
+RECEIVER_URL: Final = DECIMEN_PROTOCOL.receiver_url
 _MASK32: Final = 0xFFFFFFFF
 _MAX_UNSIGNED_SHORT: Final = 0xFFFF
 _MAGIC: Final = b"\xd1\x0c"
@@ -34,7 +37,7 @@ class StreamError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class FileMetadata:
-    """The file attributes restored by a Decimen receiver."""
+    """File attributes carried by a stream protocol."""
 
     name: str
     media_type: str
@@ -218,8 +221,8 @@ class TransferEncoder:
         return frame
 
 
-def render_svg(frame: bytes, error: str) -> bytes:
-    """Render one binary Decimen frame as an SVG QR image."""
+def render_svg(frame: bytes | str, error: str) -> bytes:
+    """Render one binary or text stream frame as an SVG QR image."""
     try:
         qr = make_qr(frame, error=error, boost_error=False)
     except (TypeError, ValueError) as exc:
@@ -230,10 +233,32 @@ def render_svg(frame: bytes, error: str) -> bytes:
     return output.getvalue()
 
 
-def browser_page(fps: int, chunk_names: tuple[str, ...] = ()) -> bytes:
+def browser_page(
+    fps: int,
+    chunk_names: tuple[str, ...] = (),
+    *,
+    protocol: StreamProtocol = DECIMEN_PROTOCOL,
+) -> bytes:
     """Return the self-contained sender page served only on localhost."""
     delay = round(1000 / fps)
     names = chunk_names or ("payload.txt",)
+    receiver_name = escape(protocol.receiver_name)
+    receiver_url = escape(protocol.receiver_url, quote=True)
+    protocol_label = escape(protocol.label)
+    experimental = " — experimental" if protocol.experimental else ""
+    receiver_instruction = (
+        f'<a href="{receiver_url}" target="_blank" rel="noopener">Open {receiver_name} receiver</a>'
+        if protocol.receiver_url
+        else f"Open {receiver_name}"
+    )
+    next_label = (
+        "Part saved on phone → Next"
+        if protocol.name == OWNED_PROTOCOL.name
+        else "Mark scanned → Next"
+    )
+    progress_label = "parts marked done"
+    if protocol.name != OWNED_PROTOCOL.name:
+        progress_label = "chunks complete"
     names_json = (
         dumps(names, ensure_ascii=True)
         .replace("<", "\\u003c")
@@ -258,10 +283,11 @@ border-radius:.35rem;cursor:pointer}}
 #controls{{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}}
 </style>
 <main><div id=\"progress\"></div><div id=\"chunks\"></div>
-<div><a href=\"{RECEIVER_URL}\" target=\"_blank\" rel=\"noopener\">Open Decimen receiver</a>
+<div>Protocol: {protocol_label}{experimental}</div>
+<div>{receiver_instruction}
 on the phone, then return here to scan.</div>
 <img id=\"qr\" alt=\"Animated QR transfer\">
-<div id=\"controls\"><button id=\"next\">Mark scanned → Next</button>
+<div id=\"controls\"><button id=\"next\">{next_label}</button>
 <button id=\"undo\">Undo last</button><button id=\"reset\">Reset checklist</button>
 <button id=\"fullscreen\">Fullscreen</button></div></main>
 <script>
@@ -282,7 +308,8 @@ function update(){{
   for (const [index,label] of [...chunks.children].entries()){{
     label.classList.toggle('current',index===current);label.classList.toggle('done',complete.has(index));
   }}
-  progress.textContent=complete.size+'/'+names.length+' chunks complete — scanning '+names[current];
+  progress.textContent=complete.size+'/'+names.length+' {progress_label}'
+    +' — scanning '+names[current];
   nextButton.disabled=complete.size===names.length;undoButton.disabled=history.length===0;
 }}
 nextButton.onclick=()=>{{
@@ -302,15 +329,28 @@ next();
 """.encode()
 
 
+class FrameEncoder(Protocol):
+    """The small shared surface required by the local QR sender."""
+
+    def frame(self, sequence: int) -> bytes | str:
+        """Return a deterministic frame for a sequence number."""
+        ...
+
+    def next_frame(self) -> bytes | str:
+        """Return the next frame in the transfer sequence."""
+        ...
+
+
 def create_browser_server(
-    encoders: TransferEncoder | tuple[TransferEncoder, ...],
+    encoders: FrameEncoder | tuple[FrameEncoder, ...],
     fps: int,
     error: str,
     *,
     chunk_names: tuple[str, ...] = (),
+    protocol: StreamProtocol = DECIMEN_PROTOCOL,
 ) -> ThreadingHTTPServer:
     """Create a localhost-only server which supplies endless QR image streams."""
-    encoder_list = (encoders,) if isinstance(encoders, TransferEncoder) else encoders
+    encoder_list = encoders if isinstance(encoders, tuple) else (encoders,)
     if not encoder_list:
         msg = "stream needs at least one encoder"
         raise StreamError(msg)
@@ -319,7 +359,7 @@ def create_browser_server(
         raise StreamError(msg)
     names = chunk_names or tuple("payload.txt" for _ in encoder_list)
     frame_lock = Lock()
-    page = browser_page(fps, names)
+    page = browser_page(fps, names, protocol=protocol)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:

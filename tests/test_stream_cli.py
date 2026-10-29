@@ -13,6 +13,8 @@ from typing import NoReturn
 import pytest
 
 from qrpipe import cli
+from qrpipe.protocols import QRF_PROTOCOL
+from qrpipe.qrf import QrfEncoder
 from qrpipe.stream import MAX_FILE_BYTES, FileMetadata, StreamError, TransferEncoder
 
 
@@ -40,6 +42,7 @@ def stream_options(**overrides: object) -> cli.StreamOptions:
         file=None,
         payload_type="text",
         preserve_newline=False,
+        protocol="decimen",
         name=None,
         media_type=None,
         chunk_size=None,
@@ -135,11 +138,49 @@ def test_stream_file_input_uses_filename_and_media_type(
     assert packed == [(b"# Notes\n", FileMetadata("notes.md", "application/x-notes"))]
 
 
+def test_qrf_stream_uses_its_receiver_and_text_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    server = FakeStreamServer()
+    encoders: list[object] = []
+
+    def fake_server(encoder: object, *_args: object, **_kwargs: object) -> FakeStreamServer:
+        encoders.append(encoder)
+        return server
+
+    def fake_svg(_frame: bytes | str, _error: str) -> bytes:
+        return b"<svg>"
+
+    monkeypatch.setattr(cli, "create_browser_server", fake_server)
+    monkeypatch.setattr(cli, "render_svg", fake_svg)
+
+    def fixed_session(_maximum: int) -> int:
+        return 6
+
+    monkeypatch.setattr(cli.secrets, "randbelow", fixed_session)
+    stdout = StringIO()
+
+    result = cli.run(
+        ["stream", "hello", "--protocol", "qrf", "--frame-bytes", "512"],
+        stdin=BytesIO(),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+
+    assert result == cli.EXIT_OK
+    assert len(encoders) == 1
+    assert isinstance(encoders[0], QrfEncoder)
+    assert encoders[0].metadata_frame.startswith("M:3.0:payload.txt:text%2Fplain:")
+    assert QRF_PROTOCOL.receiver_url in stdout.getvalue()
+    assert "experimental" in stdout.getvalue()
+
+
 def test_stream_input_validation_and_metadata() -> None:
     with pytest.raises(cli.InputError, match="cannot"):
         cli.parse_stream_options(["literal", "--file", "payload.txt"])
     with pytest.raises(cli.InputError, match="only available"):
         cli.parse_stream_options(["--file", "payload.txt", "--type", "vcard"])
+    qrf_options = cli.parse_stream_options(["--protocol", "qrf"])
+    assert qrf_options.protocol == "qrf"
+    assert (qrf_options.frame_bytes, qrf_options.fps, qrf_options.error) == (512, 8, "H")
     with pytest.raises(cli.InputError, match="regular"):
         cli.read_stream_payload(stream_options(file=Path()), BytesIO())
     with pytest.raises(cli.InputError, match="must not be empty"):

@@ -1,0 +1,32 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+		A10000000000000000000001 = {isa = PBXProject; attributes = {LastUpgradeCheck = 1600; TargetAttributes = {A10000000000000000000002 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = A10000000000000000000003; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A10000000000000000000004; productRefGroup = A10000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000002); };
+		A10000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000006; buildPhases = (A10000000000000000000007, A10000000000000000000008, A10000000000000000000009); buildRules = (); dependencies = (); name = QrpipeReceiver; productName = QrpipeReceiver; productReference = A1000000000000000000000A; productType = "com.apple.product-type.application"; };
+		A10000000000000000000004 = {isa = PBXGroup; children = (A1000000000000000000000B, A10000000000000000000005); sourceTree = "<group>"; };
+		A10000000000000000000005 = {isa = PBXGroup; children = (A1000000000000000000000A); name = Products; sourceTree = "<group>"; };
+		A1000000000000000000000B = {isa = PBXGroup; children = (A1000000000000000000000C, A1000000000000000000000D, A1000000000000000000000E, A1000000000000000000000F); path = ReceiverApp; sourceTree = "<group>"; };
+		A1000000000000000000000A = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QrpipeReceiver.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000000C = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiverApp.swift; sourceTree = "<group>"; };
+		A1000000000000000000000D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScanner.swift; sourceTree = "<group>"; };
+		A1000000000000000000000E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A1000000000000000000000F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ReceiverCore/Sources/QrpipeTransfer/TransferReceiver.swift; sourceTree = "<group>"; };
+		A10000000000000000000010 = {isa = PBXBuildFile; fileRef = A1000000000000000000000C; };
+		A10000000000000000000011 = {isa = PBXBuildFile; fileRef = A1000000000000000000000D; };
+		A10000000000000000000012 = {isa = PBXBuildFile; fileRef = A1000000000000000000000E; };
+		A10000000000000000000013 = {isa = PBXBuildFile; fileRef = A1000000000000000000000F; };
+		A10000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000010, A10000000000000000000011, A10000000000000000000012, A10000000000000000000013); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000008 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000009 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000003 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000014, A10000000000000000000015); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000016, A10000000000000000000017); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000014 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A10000000000000000000015 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
+		A10000000000000000000016 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "qrpipe Receiver"; INFOPLIST_KEY_NSCameraUsageDescription = "Scan animated QR frames to receive files from qrpipe."; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = org.sheepfling.qrpipe.receiver; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		A10000000000000000000017 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = NO; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "qrpipe Receiver"; INFOPLIST_KEY_NSCameraUsageDescription = "Scan animated QR frames to receive files from qrpipe."; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = org.sheepfling.qrpipe.receiver; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+	};
+	rootObject = A10000000000000000000001;
+}

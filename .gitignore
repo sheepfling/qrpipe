@@ -8,3 +8,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+ios/ReceiverCore/.build/
+ios/ReceiverCore/.swiftpm/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/

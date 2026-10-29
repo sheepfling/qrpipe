@@ -5,6 +5,19 @@ on:
   pull_request:
 
 jobs:
+  iphone-receiver:
+    name: iPhone receiver
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Test receiver core
+        run: swift test --package-path ios/ReceiverCore
+      - name: Build unsigned iPhone app
+        run: |
+          xcodebuild -quiet -project ios/QrpipeReceiver.xcodeproj -scheme QrpipeReceiver \
+            -sdk iphoneos -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+
   checks:
     name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

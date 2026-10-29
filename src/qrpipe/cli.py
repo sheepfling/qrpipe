@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import mimetypes
 import re
 import secrets
@@ -18,11 +19,26 @@ from typing import BinaryIO, Final, Literal, TextIO, cast
 from segno import QRCode, helpers, make_qr
 
 from qrpipe import __version__
+from qrpipe.owned import (
+    DEFAULT_PART_BYTES,
+    MAX_PARTS,
+    MAX_TRANSFER_BYTES,
+    OwnedEncoder,
+    OwnedSettings,
+)
+from qrpipe.protocols import (
+    DECIMEN_PROTOCOL,
+    OWNED_PROTOCOL,
+    QRF_PROTOCOL,
+    get_stream_protocol,
+    stream_protocol_names,
+)
+from qrpipe.qrf import QrfEncoder, QrfSettings
 from qrpipe.stream import (
     MAX_FILE_BYTES,
     MAX_FRAME_BYTES,
-    RECEIVER_URL,
     FileMetadata,
+    FrameEncoder,
     StreamError,
     TransferEncoder,
     create_browser_server,
@@ -39,6 +55,12 @@ EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_INPUT = 2
 MIN_BROWSER_FRAME_BYTES: Final = 32
+_DEFAULT_DECIMEN_FRAME_BYTES: Final = 1465
+_DEFAULT_QRF_FRAME_BYTES: Final = 512
+_DEFAULT_DECIMEN_FPS: Final = 24
+_DEFAULT_QRF_FPS: Final = 8
+_DEFAULT_DECIMEN_ERROR: Final[ErrorLevel] = "L"
+_DEFAULT_QRF_ERROR: Final[ErrorLevel] = "H"
 
 
 class InputError(ValueError):
@@ -62,12 +84,13 @@ class Options:
 
 @dataclass(frozen=True, slots=True)
 class StreamOptions:
-    """Validated options for an animated Decimen-compatible transfer."""
+    """Validated options for an animated transfer and its receiving protocol."""
 
     data: str | None
     file: Path | None
     payload_type: PayloadType
     preserve_newline: bool
+    protocol: str
     name: str | None
     media_type: str | None
     chunk_size: int | None
@@ -219,10 +242,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def build_stream_parser() -> argparse.ArgumentParser:
-    """Build the parser for Decimen-compatible animated QR transfers."""
+    """Build the parser for animated QR transfers."""
     parser = argparse.ArgumentParser(
         prog="qrpipe stream",
-        description="Display a Decimen-compatible animated QR transfer in a local browser.",
+        description="Display an animated QR transfer in a local browser.",
         epilog=(
             "Example: cat notes.md | qrpipe stream --name notes.md --open\n"
             "         qrpipe stream --file contact.vcf --open"
@@ -244,6 +267,12 @@ def build_stream_parser() -> argparse.ArgumentParser:
         help="format literal or piped text before transfer (default: text)",
     )
     parser.add_argument(
+        "--protocol",
+        choices=stream_protocol_names(),
+        default=DECIMEN_PROTOCOL.name,
+        help="receiver protocol: decimen (default), qrf, or qrpipe iPhone app",
+    )
+    parser.add_argument(
         "--preserve-newline",
         action="store_true",
         help="do not remove one final LF or CRLF from piped input",
@@ -258,15 +287,13 @@ def build_stream_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--frame-bytes",
         type=_frame_bytes,
-        default=1465,
-        help="bytes in each QR frame, from 32 through 2953 (default: 1465)",
+        help=("QR frame budget from 32 through 2953 (default: 1465 for Decimen, 512 otherwise)"),
     )
     parser.add_argument(
         "--fps",
         type=_positive_int,
         choices=range(1, 31),
-        default=24,
-        help="frames per second, from 1 through 30 (default: 24)",
+        help="frames per second, from 1 through 30 (default: 24 for Decimen, 8 otherwise)",
     )
     parser.add_argument(
         "-e",
@@ -275,8 +302,7 @@ def build_stream_parser() -> argparse.ArgumentParser:
         dest="error",
         type=str.upper,
         choices=("L", "M", "Q", "H"),
-        default="L",
-        help="QR error correction; L is recommended for fountain streams (default: L)",
+        help="QR error correction (default: L for Decimen, H otherwise)",
     )
     parser.add_argument(
         "--open",
@@ -315,17 +341,27 @@ def parse_stream_options(argv: Sequence[str] | None = None) -> StreamOptions:
     if file is not None and payload_type != "text":
         msg = "--type is only available with DATA or standard input, not --file"
         raise InputError(msg)
+    protocol = cast(str, namespace.protocol)
+    is_mobile = protocol in {QRF_PROTOCOL.name, OWNED_PROTOCOL.name}
+    frame_bytes = cast(int | None, namespace.frame_bytes)
+    fps = cast(int | None, namespace.fps)
+    error = cast(ErrorLevel | None, namespace.error)
     return StreamOptions(
         data=data,
         file=file,
         payload_type=payload_type,
         preserve_newline=cast(bool, namespace.preserve_newline),
+        protocol=protocol,
         name=cast(str | None, namespace.name),
         media_type=cast(str | None, namespace.media_type),
         chunk_size=cast(int | None, namespace.chunk_size),
-        frame_bytes=cast(int, namespace.frame_bytes),
-        fps=cast(int, namespace.fps),
-        error=cast(ErrorLevel, namespace.error),
+        frame_bytes=frame_bytes
+        if frame_bytes is not None
+        else (_DEFAULT_QRF_FRAME_BYTES if is_mobile else _DEFAULT_DECIMEN_FRAME_BYTES),
+        fps=fps if fps is not None else (_DEFAULT_QRF_FPS if is_mobile else _DEFAULT_DECIMEN_FPS),
+        error=error
+        if error is not None
+        else (_DEFAULT_QRF_ERROR if is_mobile else _DEFAULT_DECIMEN_ERROR),
         open_browser=cast(bool, namespace.open_browser),
     )
 
@@ -450,6 +486,12 @@ def read_stream_payload(options: StreamOptions, stdin: InputStream) -> bytes:
         if not options.file.is_file():
             msg = "--file must name a regular file"
             raise InputError(msg)
+        if (
+            options.protocol == OWNED_PROTOCOL.name
+            and options.file.stat().st_size > MAX_TRANSFER_BYTES
+        ):
+            msg = "qrpipe transfer exceeds its 64 MiB limit"
+            raise InputError(msg)
         data = options.file.read_bytes()
         if not data:
             msg = "input is empty; --file must not be empty"
@@ -457,7 +499,11 @@ def read_stream_payload(options: StreamOptions, stdin: InputStream) -> bytes:
         return data
 
     data = read_payload(_stream_input_options(options), stdin)
-    return data.encode("utf-8") if isinstance(data, str) else data
+    payload = data.encode("utf-8") if isinstance(data, str) else data
+    if options.protocol == OWNED_PROTOCOL.name and len(payload) > MAX_TRANSFER_BYTES:
+        msg = "qrpipe transfer exceeds its 64 MiB limit"
+        raise InputError(msg)
+    return payload
 
 
 def _stream_metadata(options: StreamOptions) -> FileMetadata:
@@ -501,17 +547,47 @@ def _chunk_name(name: str, index: int, total: int) -> str:
 
 def _stream_chunks(payload: bytes, options: StreamOptions) -> tuple[bytes, ...]:
     """Split a stream payload when requested, enforcing the per-part limit."""
-    if options.chunk_size is None:
+    chunk_size = options.chunk_size
+    if options.protocol == OWNED_PROTOCOL.name and chunk_size is None:
+        chunk_size = DEFAULT_PART_BYTES
+    if chunk_size is None:
         if len(payload) <= MAX_FILE_BYTES:
             return (payload,)
         msg = "stream input exceeds 2 MiB; pass --chunk-size such as 1MiB"
         raise InputError(msg)
-    if len(payload) <= options.chunk_size:
+    if options.protocol == OWNED_PROTOCOL.name and (len(payload) - 1) // chunk_size + 1 > MAX_PARTS:
+        msg = f"qrpipe transfer needs more than {MAX_PARTS} parts; increase --chunk-size"
+        raise InputError(msg)
+    if len(payload) <= chunk_size:
         return (payload,)
     return tuple(
-        payload[offset : offset + options.chunk_size]
-        for offset in range(0, len(payload), options.chunk_size)
+        payload[offset : offset + chunk_size] for offset in range(0, len(payload), chunk_size)
     )
+
+
+def _stream_encoder(
+    protocol_name: str,
+    payload: bytes,
+    metadata: FileMetadata,
+    options: StreamOptions,
+) -> FrameEncoder:
+    """Build the protocol-specific encoder for one independently saved part."""
+    session_id = secrets.randbelow(0xFFFF) + 1
+    if protocol_name == DECIMEN_PROTOCOL.name:
+        return TransferEncoder(pack_file(payload, metadata), options.frame_bytes, session_id)
+    if protocol_name == QRF_PROTOCOL.name:
+        return QrfEncoder(
+            payload,
+            metadata,
+            QrfSettings(
+                frame_bytes=options.frame_bytes,
+                session_id=session_id,
+                fps=options.fps,
+                error=options.error,
+            ),
+        )
+    msg = f"unsupported stream protocol: {protocol_name}"
+    raise InputError(msg)
 
 
 def create_qr(data: Payload, error: ErrorLevel) -> QRCode:
@@ -628,7 +704,7 @@ def run_stream(
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
-    """Run the animated Decimen-compatible QR sender."""
+    """Run the selected animated QR sender protocol."""
     input_stream: InputStream = getattr(sys.stdin, "buffer", sys.stdin) if stdin is None else stdin
     output_stream = sys.stdout if stdout is None else stdout
     error_stream = sys.stderr if stderr is None else stderr
@@ -641,38 +717,70 @@ def run_stream(
         payload = read_stream_payload(options, input_stream)
         chunks = _stream_chunks(payload, options)
         metadata = _stream_metadata(options)
+        protocol = get_stream_protocol(options.protocol)
         total = len(chunks)
         chunk_names = (
             tuple(_chunk_name(metadata.name, index, total) for index in range(1, total + 1))
             if total > 1
             else (metadata.name,)
         )
-        encoders = tuple(
-            TransferEncoder(
-                pack_file(chunk, FileMetadata(name, metadata.media_type)),
-                options.frame_bytes,
-                secrets.randbelow(0xFFFF) + 1,
+        if protocol.name == OWNED_PROTOCOL.name:
+            session_id = secrets.token_hex(8)
+            total_sha256 = hashlib.sha256(payload).hexdigest()
+            encoders: tuple[FrameEncoder, ...] = tuple(
+                OwnedEncoder(
+                    chunk,
+                    metadata,
+                    OwnedSettings(
+                        options.frame_bytes, session_id, index, total, len(payload), total_sha256
+                    ),
+                )
+                for index, chunk in enumerate(chunks)
             )
-            for chunk, name in zip(chunks, chunk_names, strict=True)
-        )
+        else:
+            encoders = tuple(
+                _stream_encoder(
+                    protocol.name, chunk, FileMetadata(name, metadata.media_type), options
+                )
+                for chunk, name in zip(chunks, chunk_names, strict=True)
+            )
         render_svg(encoders[0].frame(0), options.error)
+        if protocol.name == OWNED_PROTOCOL.name:
+            render_svg(encoders[0].frame(1), options.error)
         server = create_browser_server(
             encoders if total > 1 else encoders[0],
             options.fps,
             options.error,
             chunk_names=chunk_names,
+            protocol=protocol,
         )
         url = f"http://127.0.0.1:{server.server_port}/"
         try:
             if options.open_browser:
                 _open_stream(url)
             print(f"qrpipe stream: {url}", file=output_stream)
-            receiver = f"Receiver: {RECEIVER_URL} (choose Receive)"
+            receiver = (
+                f"Receiver: {protocol.receiver_url} (open {protocol.receiver_name})"
+                if protocol.receiver_url
+                else "Receiver: qrpipe Receiver iPhone app (build from ios/ in this repository)"
+            )
             print(receiver, file=output_stream)
-            if total > 1:
+            if protocol.name == QRF_PROTOCOL.name:
+                print(
+                    "QRF is experimental: it uses QRF's documented legacy text framing "
+                    "without compression.",
+                    file=output_stream,
+                )
+            if total > 1 and protocol.name != OWNED_PROTOCOL.name:
                 print(
                     f"Chunks: select and save all {total} parts, then reassemble "
                     "them in filename order.",
+                    file=output_stream,
+                )
+            if total > 1 and protocol.name == OWNED_PROTOCOL.name:
+                print(
+                    f"Parts: {total}; scan each part, then tap Next on the sender. "
+                    "The receiver verifies and assembles the file automatically.",
                     file=output_stream,
                 )
             print("Press Ctrl+C to stop.", file=output_stream)

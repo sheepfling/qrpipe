@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a qrpipe-owned optical transfer format and iPhone receiver, with frame integrity checks,
+  verified part persistence, and automatic file reassembly up to 64 MiB.
+- Add protocol-aware animated QR streams, preserving Decimen as the default and adding an
+  experimental QRF 3.0 legacy text-frame sender.
 - Add checklist-based chunked streams for inputs larger than Decimen's 2 MiB per-file limit.
 - Add `qrpipe stream`, a localhost browser sender for Decimen-compatible, fountain-coded animated
   QR transfer.
