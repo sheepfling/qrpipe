@@ -11,10 +11,12 @@ import secrets
 import subprocess
 import sys
 import tempfile
+import webbrowser
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import BinaryIO, Final, Literal, TextIO, cast
+from typing import BinaryIO, Final, Literal, Protocol, TextIO, cast
 
 from segno import QRCode, helpers, make_qr
 
@@ -26,6 +28,7 @@ from qrpipe.owned import (
     OwnedEncoder,
     OwnedSettings,
 )
+from qrpipe.owned_receive import ReceivedFile
 from qrpipe.protocols import (
     DECIMEN_PROTOCOL,
     OWNED_PROTOCOL,
@@ -67,6 +70,18 @@ class InputError(ValueError):
     """Raised when the command receives unusable input or options."""
 
 
+class _GifTools(Protocol):
+    """Lazy access to optional local GIF and QR decoding libraries."""
+
+    def save_gif(self, encoder: OwnedEncoder, path: Path, *, fps: int, error: str) -> int:
+        """Write a looping QR GIF."""
+        ...
+
+    def read_gif(self, path: Path) -> ReceivedFile:
+        """Restore a verified file from GIF QR frames."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class Options:
     """Validated command-line options."""
@@ -98,6 +113,7 @@ class StreamOptions:
     fps: int
     error: ErrorLevel
     open_browser: bool
+    gif_output: Path | None = None
 
 
 def _positive_int(value: str) -> int:
@@ -170,7 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Example: printf '%s' 'https://example.com' | qrpipe\n"
             "         echo '+1 (555) 010-1234' | qrpipe --type phone -o phone.png\n"
-            "         cat notes.md | qrpipe stream --name notes.md --open"
+            "         qrpipe send notes.md\n"
+            "         qrpipe receive-gif notes.gif -o restored.md"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -310,6 +327,25 @@ def build_stream_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="open the local sender page in the default browser",
     )
+    parser.add_argument(
+        "--gif",
+        dest="gif_output",
+        type=Path,
+        help="save a small qrpipe-protocol transfer as a looping GIF instead of serving it",
+    )
+    return parser
+
+
+def build_receive_gif_parser() -> argparse.ArgumentParser:
+    """Build the parser for reading a saved QP1 GIF without a camera."""
+    parser = argparse.ArgumentParser(
+        prog="qrpipe receive-gif",
+        description="Read a qrpipe optical GIF and restore its verified file locally.",
+    )
+    parser.add_argument("gif", type=Path, help="animated QR GIF to decode")
+    parser.add_argument(
+        "-o", "--output", type=Path, help="restored file path (default: embedded name)"
+    )
     return parser
 
 
@@ -363,6 +399,7 @@ def parse_stream_options(argv: Sequence[str] | None = None) -> StreamOptions:
         if error is not None
         else (_DEFAULT_QRF_ERROR if is_mobile else _DEFAULT_DECIMEN_ERROR),
         open_browser=cast(bool, namespace.open_browser),
+        gif_output=cast(Path | None, namespace.gif_output),
     )
 
 
@@ -667,6 +704,96 @@ def _open_stream(url: str) -> None:
         raise InputError(msg) from exc
 
 
+def _open_gif(path: Path) -> None:
+    """Show an exported animation in Safari on macOS or the system browser elsewhere."""
+    if sys.platform == "darwin":
+        try:
+            subprocess.run(
+                ["open", "-a", "Safari", str(path.resolve())],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            msg = "could not open GIF in Safari"
+            raise InputError(msg) from exc
+        return
+    if not webbrowser.open_new(path.resolve().as_uri()):
+        msg = "could not open GIF in the system browser"
+        raise InputError(msg)
+
+
+def _gif_tools() -> _GifTools:
+    """Load optional offline image tools only for GIF commands."""
+    try:
+        return cast(_GifTools, import_module("qrpipe.optical_gif"))
+    except ModuleNotFoundError as exc:
+        if exc.name in {"PIL", "zxingcpp"}:
+            msg = "GIF commands need local image tools; install qrpipe[gif]"
+            raise InputError(msg) from exc
+        raise
+
+
+def _write_received_file(data: bytes, output: Path) -> None:
+    """Atomically write bytes restored from an optical GIF."""
+    if output == Path("-"):
+        msg = "'-' is not a file output; choose an output path"
+        raise InputError(msg)
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=output.parent, prefix=f".{output.name}.", delete=False
+        ) as temporary:
+            temporary_name = temporary.name
+            temporary.write(data)
+        Path(temporary_name).replace(output)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            with contextlib.suppress(FileNotFoundError):
+                Path(temporary_name).unlink()
+
+
+def _received_output_path(name: str, requested: Path | None) -> Path:
+    """Use the embedded name only when it cannot replace an existing file."""
+    output = requested or Path(name)
+    if requested is None and output.exists():
+        msg = f"{output} already exists; choose an explicit --output path"
+        raise InputError(msg)
+    return output
+
+
+def _save_stream_gif(
+    options: StreamOptions,
+    protocol_name: str,
+    encoders: tuple[FrameEncoder, ...],
+    output_stream: TextIO,
+) -> int:
+    """Export the one-part owned stream as a replayable GIF."""
+    path = options.gif_output
+    assert path is not None
+    if protocol_name != OWNED_PROTOCOL.name:
+        msg = "--gif requires --protocol qrpipe"
+        raise InputError(msg)
+    if len(encoders) != 1:
+        msg = "GIF export supports one part; increase --chunk-size or use the live sender"
+        raise InputError(msg)
+    encoder = encoders[0]
+    assert isinstance(encoder, OwnedEncoder)
+    frame_count = _gif_tools().save_gif(encoder, path, fps=options.fps, error=options.error)
+    print(f"Saved {frame_count}-frame QR GIF: {path}", file=output_stream)
+    if options.open_browser:
+        _open_gif(path)
+    return EXIT_OK
+
+
+def _validate_stream_frames(encoder: FrameEncoder, protocol_name: str, error: str) -> None:
+    """Catch an unrenderable QR before starting a sender or GIF export."""
+    render_svg(encoder.frame(0), error)
+    if protocol_name == OWNED_PROTOCOL.name:
+        render_svg(encoder.frame(1), error)
+
+
 def emit_qr(qr: QRCode, options: Options, stdout: TextIO) -> None:
     """Render a QR code to the terminal or save it to a file."""
     if options.output is None:
@@ -744,9 +871,9 @@ def run_stream(
                 )
                 for chunk, name in zip(chunks, chunk_names, strict=True)
             )
-        render_svg(encoders[0].frame(0), options.error)
-        if protocol.name == OWNED_PROTOCOL.name:
-            render_svg(encoders[0].frame(1), options.error)
+        _validate_stream_frames(encoders[0], protocol.name, options.error)
+        if options.gif_output is not None:
+            return _save_stream_gif(options, protocol.name, encoders, output_stream)
         server = create_browser_server(
             encoders if total > 1 else encoders[0],
             options.fps,
@@ -799,6 +926,29 @@ def run_stream(
     return EXIT_OK
 
 
+def run_receive_gif(
+    argv: Sequence[str], *, stdout: TextIO | None = None, stderr: TextIO | None = None
+) -> int:
+    """Decode a saved QP1 GIF and write the verified file."""
+    output_stream = sys.stdout if stdout is None else stdout
+    error_stream = sys.stderr if stderr is None else stderr
+    namespace = build_receive_gif_parser().parse_args(argv)
+    source = cast(Path, namespace.gif)
+    try:
+        restored = _gif_tools().read_gif(source)
+        requested_output = cast(Path | None, namespace.output)
+        output = _received_output_path(restored.name, requested_output)
+        _write_received_file(restored.data, output)
+        print(f"Verified {len(restored.data)} bytes: {output}", file=output_stream)
+    except (InputError, StreamError) as exc:
+        print(f"qrpipe: {exc}", file=error_stream)
+        return EXIT_INPUT
+    except OSError:
+        print("qrpipe: I/O error while reading or writing GIF transfer", file=error_stream)
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
 def run(
     argv: Sequence[str] | None = None,
     *,
@@ -808,6 +958,18 @@ def run(
 ) -> int:
     """Run the command and return a process exit status."""
     arguments = tuple(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ("send",):
+        remaining = arguments[1:]
+        if remaining and not remaining[0].startswith("-"):
+            remaining = ("--file", remaining[0], *remaining[1:])
+        return run_stream(
+            ("--protocol", "qrpipe", "--open", *remaining),
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
+    if arguments[:1] == ("receive-gif",):
+        return run_receive_gif(arguments[1:], stdout=stdout, stderr=stderr)
     if arguments[:1] == ("stream",):
         return run_stream(arguments[1:], stdin=stdin, stdout=stdout, stderr=stderr)
 

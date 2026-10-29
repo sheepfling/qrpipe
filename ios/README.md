@@ -22,6 +22,10 @@ not involved in the transfer after installation. No App Store or hosted receiver
 qrpipe stream --protocol qrpipe --file notes.md --open
 ```
 
+For a shorter command, `qrpipe send notes.md` opens the sender page automatically. A small file
+can also be saved as a looping GIF with `qrpipe send notes.md --gif notes.gif`; the phone scans
+the GIF displayed on the computer in the same way.
+
 Open the sender page on the computer. Tap **Start scanning** in the iPhone app and point the camera
 at the QR image. When the app says **Part N saved**, tap **Part saved on phone → Next** on the
 computer. When all parts are verified, tap **Save or share verified file** on the phone.

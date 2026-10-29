@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a `qrpipe send FILE` shortcut that opens the local QR sender, plus optional looping GIF
+  export and verified offline GIF readback for small transfers.
 - Add a qrpipe-owned optical transfer format and iPhone receiver, with frame integrity checks,
   verified part persistence, and automatic file reassembly up to 64 MiB.
 - Add protocol-aware animated QR streams, preserving Decimen as the default and adding an

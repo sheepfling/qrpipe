@@ -120,6 +120,29 @@ camera-to-receiver smoke test before relying on it for an important transfer. Ai
 and Pharos also use animated QR transfer, but their public product descriptions do not establish a
 shared wire protocol, so `qrpipe` does not claim compatibility with them yet.
 
+### Quick sender and offline GIF test
+
+`qrpipe send FILE` starts the qrpipe-protocol sender and opens its page in the system browser
+automatically. The page runs on the computer only; the iPhone app reads the display with its
+camera. For a piped payload, use `cat notes.md | qrpipe send --name notes.md`.
+
+An optional GIF export makes a small transfer replayable without a running sender. Its reader
+decodes QR images locally, verifies the file hash, and writes the restored bytes:
+
+```console
+python -m pip install 'qrpipe[gif]'
+qrpipe send notes.md --gif notes.gif
+qrpipe receive-gif notes.gif -o restored.md
+```
+
+The `send` shortcut opens the GIF in Safari on macOS, or the system browser elsewhere. GIF export supports
+one part and at most 512 QR frames (about 70 KiB at the default frame size); use the live sender
+for larger transfers. Blank or unreadable QR frames can be recovered from repair frames. Damage to
+the GIF file structure itself may prevent any frames from being read. Pillow and zxing-cpp are
+optional local libraries for GIF work; neither is a hosted receiver or network service.
+If `-o` is omitted, the reader uses the embedded filename and refuses to overwrite an existing
+file.
+
 ## Input and output semantics
 
 - A positional `DATA` value takes precedence over standard input and is treated literally.

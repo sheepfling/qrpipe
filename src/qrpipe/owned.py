@@ -18,6 +18,7 @@ MAX_PARTS: Final = 512
 MIN_FRAME_BYTES: Final = 256
 METADATA_INTERVAL: Final = 32
 _FRAME_OVERHEAD: Final = 128
+MAX_BLOCK_BYTES: Final = ((MAX_FRAME_BYTES - _FRAME_OVERHEAD) * 3) // 4
 _SESSION_PATTERN: Final = re.compile(r"[0-9a-f]{16}\Z")
 
 

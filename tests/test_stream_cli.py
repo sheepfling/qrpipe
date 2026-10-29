@@ -264,3 +264,45 @@ def test_open_stream_normalizes_system_errors(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(cli.subprocess, "Popen", cannot_open)
     with pytest.raises(cli.InputError, match="could not open"):
         cli._open_stream("http://127.0.0.1:1/")
+
+
+def test_open_gif_uses_safari_on_mac(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gif = tmp_path / "transfer.gif"
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> object:
+        commands.append(command)
+        return object()
+
+    monkeypatch.setattr(cli.sys, "platform", "darwin")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli._open_gif(gif)
+    assert commands == [["open", "-a", "Safari", str(gif.resolve())]]
+
+    def cannot_open(*_args: object, **_kwargs: object) -> NoReturn:
+        raise OSError
+
+    monkeypatch.setattr(cli.subprocess, "run", cannot_open)
+    with pytest.raises(cli.InputError, match="could not open GIF in Safari"):
+        cli._open_gif(gif)
+
+
+def test_open_gif_uses_browser_elsewhere(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    gif = tmp_path / "transfer.gif"
+    opened: list[str] = []
+
+    def fake_open(uri: str) -> bool:
+        opened.append(uri)
+        return True
+
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    monkeypatch.setattr(cli.webbrowser, "open_new", fake_open)
+    cli._open_gif(gif)
+    assert opened == [gif.resolve().as_uri()]
+
+    def cannot_open(_uri: str) -> bool:
+        return False
+
+    monkeypatch.setattr(cli.webbrowser, "open_new", cannot_open)
+    with pytest.raises(cli.InputError, match="could not open GIF in the system browser"):
+        cli._open_gif(gif)

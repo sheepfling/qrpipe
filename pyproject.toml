@@ -33,6 +33,10 @@ Source = "https://github.com/sheepfling/qrpipe"
 Issues = "https://github.com/sheepfling/qrpipe/issues"
 
 [project.optional-dependencies]
+gif = [
+    "pillow>=11,<13",
+    "zxing-cpp>=3.1.1,<4",
+]
 dev = [
     "build>=1.2",
     "pre-commit>=4",
@@ -42,6 +46,8 @@ dev = [
     "ruff>=0.11",
     "rumdl>=0.1",
     "twine>=6",
+    "pillow>=11,<13",
+    "zxing-cpp>=3.1.1,<4",
 ]
 
 [project.scripts]
