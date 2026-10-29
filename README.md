@@ -130,7 +130,7 @@ An optional GIF export makes a small transfer replayable without a running sende
 decodes QR images locally, verifies the file hash, and writes the restored bytes:
 
 ```console
-python -m pip install 'qrpipe[gif]'
+python -m pip install -e '.[gif]'
 qrpipe send notes.md --gif notes.gif
 qrpipe receive-gif notes.gif -o restored.md
 ```

@@ -24,7 +24,8 @@ qrpipe stream --protocol qrpipe --file notes.md --open
 
 For a shorter command, `qrpipe send notes.md` opens the sender page automatically. A small file
 can also be saved as a looping GIF with `qrpipe send notes.md --gif notes.gif`; the phone scans
-the GIF displayed on the computer in the same way.
+the GIF displayed on the computer in the same way. Install the local `.[gif]` extra first for GIF
+export and readback.
 
 Open the sender page on the computer. Tap **Start scanning** in the iPhone app and point the camera
 at the QR image. When the app says **Part N saved**, tap **Part saved on phone → Next** on the
